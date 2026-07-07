@@ -42,8 +42,7 @@
 #define F32C_MIN_CONFIDENCE         40
 
 /* Direction depends on camera/gimbal installation.
- * This patch flips yaw because current test shows left/right is reversed.
- * If your final hardware behaves opposite, change this back to -1.
+ * If your final hardware behaves opposite, change the corresponding value.
  */
 #define F32C_YAW_DIR                1
 #define F32C_PITCH_DIR              -1
@@ -71,6 +70,41 @@
 #define F32C_PITCH_MIN_X10          (-450)
 #define F32C_PITCH_MAX_X10          (450)
 
+/* ===================== Calibration values =====================
+ *
+ * Unit of *_YAW_X10 / *_PITCH_X10:
+ *   0.1 degree. Example: 184 means 18.4 degrees.
+ *
+ * Unit of *_DX_BIAS / *_DY_BIAS:
+ *   pixel error from MaixCAM2 vision packet.
+ *
+ * Fill these values after using the motor-only calibration firmware.
+ */
+
+/* Startup preset:
+ * Used only after power-on, so the camera/gimbal first points roughly toward
+ * the target paper and vision tracking can start reliably.
+ */
+#define F32C_INIT_YAW_X10           0
+#define F32C_INIT_PITCH_X10         10
+
+/* B-point preset:
+ * Optional. This is the yaw/pitch angle when laser hits the target center at B.
+ * The current main loop will not automatically jump to this value unless you
+ * call F32C_Gimbal_GotoBPreset() from your car-state logic.
+ */
+#define F32C_B_YAW_X10              0
+#define F32C_B_PITCH_X10            0
+
+/* B-point vision bias:
+ * Critical for final laser hit accuracy when using vision tracking.
+ * If laser hits the center at B while the vision log shows raw_dx/raw_dy not zero,
+ * put those raw values here.
+ */
+#define F32C_USE_B_VISION_BIAS      1
+#define F32C_B_DX_BIAS              0
+#define F32C_B_DY_BIAS              0
+
 extern int32_t Motor1_T_Position;
 extern int32_t Motor2_T_Position;
 extern int32_t Motor1_Current_Position;
@@ -80,5 +114,6 @@ void F32C_Gimbal_Init(void);
 void F32C_Gimbal_Task(void);
 void F32C_Gimbal_SetTarget(int32_t motor1_pos_x10, int32_t motor2_pos_x10);
 void F32C_Gimbal_SendPositionBoth(void);
+void F32C_Gimbal_GotoBPreset(void);
 
 #endif

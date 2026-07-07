@@ -159,6 +159,12 @@ void F32C_Gimbal_SendPositionBoth(void)
     f32c_send_position(F32C_MOTOR2_ID, Motor2_T_Position);
 }
 
+void F32C_Gimbal_GotoBPreset(void)
+{
+    F32C_Gimbal_SetTarget(F32C_B_YAW_X10, F32C_B_PITCH_X10);
+    F32C_Gimbal_SendPositionBoth();
+}
+
 static void F32C_Gimbal_SendPositionBoth_Throttled(uint32_t now)
 {
     static uint32_t last_position_send_ms = 0;
@@ -238,6 +244,13 @@ void F32C_Gimbal_Init(void)
     printf("F32C init: USART3 PB10=TX PB11=RX baud=115200\r\n");
     printf("F32C cfg: vision=%d speed_mode=%d manual_pos_test=%d\r\n",
            F32C_VISION_ENABLE, F32C_TRACK_USE_SPEED_MODE, F32C_MANUAL_POSITION_TEST_ENABLE);
+    printf("F32C calibration: init=(%ld,%ld) B=(%ld,%ld) B_bias=(%d,%d)\r\n",
+           (long)F32C_INIT_YAW_X10,
+           (long)F32C_INIT_PITCH_X10,
+           (long)F32C_B_YAW_X10,
+           (long)F32C_B_PITCH_X10,
+           (int)F32C_B_DX_BIAS,
+           (int)F32C_B_DY_BIAS);
 
     /* Wake up the motor TTL port, then give the F32C controller time to boot. */
     HAL_UART_Transmit(&huart3, &wake, 1, 20);
@@ -291,7 +304,8 @@ void F32C_Gimbal_Init(void)
     f32c_send_speed(F32C_MOTOR2_ID, F32C_DEFAULT_SPEED);
     HAL_Delay(F32C_CMD_DELAY_MS);
 
-    F32C_Gimbal_SetTarget(0, 0);
+    /* Startup preset: use calibrated init pose instead of mechanical 0,0. */
+    F32C_Gimbal_SetTarget(F32C_INIT_YAW_X10, F32C_INIT_PITCH_X10);
     F32C_Gimbal_SendPositionBoth();
 #endif
 
@@ -355,12 +369,14 @@ void F32C_Gimbal_Task(void)
 #if F32C_DEBUG_PRINT_ENABLE
     if((now - last_debug_ms) >= F32C_DEBUG_PRINT_PERIOD_MS){
         last_debug_ms = now;
-        printf("GIMBAL vc=%lu found=%u conf=%u raw_dx=%d raw_dy=%d tgt1=%ld tgt2=%ld spd1=%d spd2=%d age=%lu\r\n",
+        printf("GIMBAL vc=%lu found=%u conf=%u raw_dx=%d raw_dy=%d bias_dx=%d bias_dy=%d tgt1=%ld tgt2=%ld spd1=%d spd2=%d age=%lu\r\n",
                (unsigned long)g_vision_target.valid_count,
                (unsigned int)found,
                (unsigned int)g_vision_target.confidence,
                (int)g_vision_target.dx,
                (int)g_vision_target.dy,
+               (int)F32C_B_DX_BIAS,
+               (int)F32C_B_DY_BIAS,
                (long)Motor1_T_Position,
                (long)Motor2_T_Position,
                (int)Motor1_T_Speed,
@@ -374,8 +390,15 @@ void F32C_Gimbal_Task(void)
        (found != 0) &&
        (g_vision_target.confidence >= F32C_MIN_CONFIDENCE)){
 
+#if F32C_USE_B_VISION_BIAS
+        dx = apply_deadzone((int16_t)(g_vision_target.dx - F32C_B_DX_BIAS),
+                            F32C_DEADZONE_X_PX);
+        dy = apply_deadzone((int16_t)(g_vision_target.dy - F32C_B_DY_BIAS),
+                            F32C_DEADZONE_Y_PX);
+#else
         dx = apply_deadzone(g_vision_target.dx, F32C_DEADZONE_X_PX);
         dy = apply_deadzone(g_vision_target.dy, F32C_DEADZONE_Y_PX);
+#endif
 
 #if F32C_TRACK_USE_SPEED_MODE
         yaw_step = ((int32_t)dx * F32C_YAW_SPEED_K_NUM) / F32C_YAW_SPEED_K_DEN;
