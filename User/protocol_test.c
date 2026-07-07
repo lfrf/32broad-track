@@ -117,7 +117,7 @@ void protocol_test_proc(void)
         if(payload_len == VISION_PAYLOAD_LEN){
             parse_vision_payload(payload);
 
-            if((g_vision_target.valid_count % VISION_PRINT_EVERY_N_VALID_PACKETS) == 0){
+            if((VISION_PRINT_EVERY_N_VALID_PACKETS > 0) && ((g_vision_target.valid_count % VISION_PRINT_EVERY_N_VALID_PACKETS) == 0)){
                 printf("seq=%u found=%u stable=%u cx=%d cy=%d dx=%d dy=%d conf=%u fps=%u count=%lu\r\n",
                        (unsigned int)g_vision_target.seq,
                        (unsigned int)((g_vision_target.flags & VISION_FLAG_FOUND) ? 1 : 0),
@@ -151,5 +151,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         HAL_UART_Receive_IT(&huart2, &_u8Data, 1);
     }
 }
+
 
 

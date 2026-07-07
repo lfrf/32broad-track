@@ -13,6 +13,8 @@
 #define F32C_MODE_POSITION_T        1
 
 #define F32C_DEFAULT_SPEED          50
+#define F32C_BOOT_SELF_TEST_ENABLE  1
+#define F32C_BOOT_SELF_TEST_X10     30
 #define F32C_CONTROL_PERIOD_MS      20
 #define F32C_VISION_TIMEOUT_MS      300
 
@@ -48,3 +50,4 @@ void F32C_Gimbal_SetTarget(int32_t motor1_pos_x10, int32_t motor2_pos_x10);
 void F32C_Gimbal_SendPositionBoth(void);
 
 #endif
+

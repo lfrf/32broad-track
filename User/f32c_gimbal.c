@@ -2,6 +2,7 @@
 #include "protocol_test.h"
 
 #include <string.h>
+#include <stdio.h>
 
 static UART_HandleTypeDef huart3;
 
@@ -81,7 +82,12 @@ static void f32c_uart3_init(void)
 
 static void f32c_send(uint8_t *data, uint16_t len)
 {
-    HAL_UART_Transmit(&huart3, data, len, 20);
+    HAL_StatusTypeDef status;
+
+    status = HAL_UART_Transmit(&huart3, data, len, 20);
+    if(status != HAL_OK){
+        printf("F32C uart3 tx error=%d\r\n", (int)status);
+    }
 }
 
 static void f32c_send_enable(uint8_t id)
@@ -143,6 +149,7 @@ void F32C_Gimbal_Init(void)
     uint8_t wake = 0x00;
 
     f32c_uart3_init();
+    printf("F32C init: USART3 PB10=TX PB11=RX baud=115200\r\n");
 
     /* Wake up the motor TTL port, then give the F32C controller time to boot. */
     HAL_UART_Transmit(&huart3, &wake, 1, 20);
@@ -165,6 +172,18 @@ void F32C_Gimbal_Init(void)
 
     F32C_Gimbal_SetTarget(0, 0);
     F32C_Gimbal_SendPositionBoth();
+
+#if F32C_BOOT_SELF_TEST_ENABLE
+    printf("F32C boot self-test: small move\r\n");
+    HAL_Delay(300);
+    F32C_Gimbal_SetTarget(F32C_BOOT_SELF_TEST_X10, F32C_BOOT_SELF_TEST_X10);
+    F32C_Gimbal_SendPositionBoth();
+    HAL_Delay(500);
+    F32C_Gimbal_SetTarget(0, 0);
+    F32C_Gimbal_SendPositionBoth();
+#endif
+
+    printf("F32C init done\r\n");
 }
 
 void F32C_Gimbal_Task(void)
@@ -212,5 +231,6 @@ void F32C_Gimbal_Task(void)
 
     F32C_Gimbal_SendPositionBoth();
 }
+
 
 

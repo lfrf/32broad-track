@@ -6,7 +6,7 @@
 #define VISION_PAYLOAD_LEN      14
 #define VISION_FLAG_FOUND       0x01
 #define VISION_FLAG_STABLE      0x02
-#define VISION_PRINT_EVERY_N_VALID_PACKETS 20
+#define VISION_PRINT_EVERY_N_VALID_PACKETS 0
 
 typedef struct {
     uint16_t seq;
@@ -26,4 +26,5 @@ void protocol_test_init(void);
 void protocol_test_proc(void);
 
 #endif
+
 
