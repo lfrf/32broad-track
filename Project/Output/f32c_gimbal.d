@@ -1,4 +1,4 @@
-./output/main.o: ..\User\main.c ..\User\main.h \
+./output/f32c_gimbal.o: ..\User\f32c_gimbal.c ..\User\f32c_gimbal.h \
   ..\Libraries\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal.h \
   ..\User\stm32f1xx_hal_conf.h \
   ..\Libraries\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_rcc.h \
@@ -45,5 +45,4 @@
   ..\Libraries\STM32F1xx_HAL_Driver\Inc\stm32f1xx_ll_usb.h \
   ..\Libraries\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_pcd_ex.h \
   ..\Libraries\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_hcd.h \
-  ..\User\bsp\bsp_debug_usart.h ..\User\bsp\bsp_led.h \
-  ..\User\protocol_test.h ..\User\f32c_gimbal.h
+  ..\User\protocol_test.h

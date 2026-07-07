@@ -2,6 +2,7 @@
 ".\output\main.o"
 ".\output\stm32f1xx_it.o"
 ".\output\protocol_test.o"
+".\output\f32c_gimbal.o"
 ".\output\bsp_debug_usart.o"
 ".\output\bsp_led.o"
 ".\output\ringbuffer.o"
