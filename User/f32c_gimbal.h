@@ -86,15 +86,15 @@
  * the target paper and vision tracking can start reliably.
  */
 #define F32C_INIT_YAW_X10           0
-#define F32C_INIT_PITCH_X10         10
+#define F32C_INIT_PITCH_X10         -80
 
 /* B-point preset:
  * Optional. This is the yaw/pitch angle when laser hits the target center at B.
  * The current main loop will not automatically jump to this value unless you
  * call F32C_Gimbal_GotoBPreset() from your car-state logic.
  */
-#define F32C_B_YAW_X10              0
-#define F32C_B_PITCH_X10            0
+#define F32C_B_YAW_X10              (-180)
+#define F32C_B_PITCH_X10            50
 
 /* B-point vision bias:
  * Critical for final laser hit accuracy when using vision tracking.
@@ -102,8 +102,8 @@
  * put those raw values here.
  */
 #define F32C_USE_B_VISION_BIAS      1
-#define F32C_B_DX_BIAS              0
-#define F32C_B_DY_BIAS              0
+#define F32C_B_DX_BIAS              2
+#define F32C_B_DY_BIAS              -18
 
 extern int32_t Motor1_T_Position;
 extern int32_t Motor2_T_Position;
