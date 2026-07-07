@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #define F32C_VISION_ENABLE          1
-#define F32C_DEBUG_PRINT_ENABLE     1
+#define F32C_DEBUG_PRINT_ENABLE     0
 #define F32C_DEBUG_PRINT_PERIOD_MS  500
 #define F32C_TRACK_USE_SPEED_MODE   0
 
@@ -16,7 +16,7 @@
 /* 1: multi-turn position with T trajectory planning. */
 #define F32C_MODE_POSITION_T        1
 
-#define F32C_DEFAULT_SPEED          120
+#define F32C_DEFAULT_SPEED          160
 #define F32C_BOOT_SELF_TEST_ENABLE  0
 #define F32C_BOOT_SPEED_TEST_ENABLE 0
 #define F32C_MANUAL_POSITION_TEST_ENABLE 0
@@ -30,8 +30,8 @@
  * control still runs at 20ms, but F32C position frames are sent at <= 50ms,
  * with a short gap between motor1 and motor2 frames.
  */
-#define F32C_POSITION_SEND_PERIOD_MS 50
-#define F32C_INTER_MOTOR_DELAY_MS    10
+#define F32C_POSITION_SEND_PERIOD_MS 30
+#define F32C_INTER_MOTOR_DELAY_MS    5
 
 /* Legacy common deadzone kept for compatibility/reference, but the task now uses
  * separated X/Y deadzones below.
@@ -55,7 +55,16 @@
 #define F32C_PITCH_K_NUM            1
 #define F32C_PITCH_K_DEN            3
 
-#define F32C_YAW_STEP_LIMIT_X10     6
+#define F32C_YAW_STEP_LIMIT_X10     8
+/* Segmented yaw step limits for faster large-error recovery without large
+ * horizontal oscillation near the center.
+ */
+#define F32C_YAW_STEP_LIMIT_NEAR_X10   5
+#define F32C_YAW_STEP_LIMIT_MID_X10    8
+#define F32C_YAW_STEP_LIMIT_FAR_X10    10
+#define F32C_YAW_MID_ERR_PX            16
+#define F32C_YAW_FAR_ERR_PX            32
+
 #define F32C_PITCH_STEP_LIMIT_X10   3
 
 #define F32C_YAW_SPEED_K_NUM        1
@@ -86,7 +95,7 @@
  * the target paper and vision tracking can start reliably.
  */
 #define F32C_INIT_YAW_X10           0
-#define F32C_INIT_PITCH_X10         -80
+#define F32C_INIT_PITCH_X10         10
 
 /* B-point preset:
  * Optional. This is the yaw/pitch angle when laser hits the target center at B.
@@ -103,7 +112,7 @@
  */
 #define F32C_USE_B_VISION_BIAS      1
 #define F32C_B_DX_BIAS              2
-#define F32C_B_DY_BIAS              -18
+#define F32C_B_DY_BIAS              (-18)
 
 extern int32_t Motor1_T_Position;
 extern int32_t Motor2_T_Position;

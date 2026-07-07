@@ -13,6 +13,15 @@ int32_t Motor2_Current_Position = 0;
 static int16_t Motor1_T_Speed = 0;
 static int16_t Motor2_T_Speed = 0;
 
+/* Latest-target overwrite queue:
+ * New vision targets overwrite older pending targets.
+ * F32C only receives the newest target when the send scheduler is due.
+ */
+static int32_t g_pending_yaw_x10 = 0;
+static int32_t g_pending_pitch_x10 = 0;
+static uint8_t g_pending_position_valid = 0;
+static uint32_t g_last_position_send_ms = 0;
+
 static uint8_t motor1_Enable_data[5] = {0x7A, 0x01, 0x06, 0x7D, 0x7B};
 static uint8_t motor2_Enable_data[5] = {0x7A, 0x02, 0x06, 0x7E, 0x7B};
 static uint8_t motor1_Mode_data[7] = {0x7A, 0x01, 0x00, 0x00, 0x00, 0x7B, 0x7B};
@@ -42,6 +51,26 @@ static int32_t clamp_i32(int32_t v, int32_t low, int32_t high)
         return high;
     }
     return v;
+}
+
+static int32_t f32c_abs_i32(int32_t v)
+{
+    return (v < 0) ? -v : v;
+}
+
+static int32_t f32c_get_yaw_step_limit_x10(int16_t dx)
+{
+    int32_t adx = f32c_abs_i32((int32_t)dx);
+
+    if(adx >= F32C_YAW_FAR_ERR_PX){
+        return F32C_YAW_STEP_LIMIT_FAR_X10;
+    }
+
+    if(adx >= F32C_YAW_MID_ERR_PX){
+        return F32C_YAW_STEP_LIMIT_MID_X10;
+    }
+
+    return F32C_YAW_STEP_LIMIT_NEAR_X10;
 }
 
 static int16_t apply_deadzone(int16_t v, int16_t zone)
@@ -162,26 +191,46 @@ void F32C_Gimbal_SendPositionBoth(void)
 void F32C_Gimbal_GotoBPreset(void)
 {
     F32C_Gimbal_SetTarget(F32C_B_YAW_X10, F32C_B_PITCH_X10);
+    g_pending_position_valid = 0;
     F32C_Gimbal_SendPositionBoth();
+    g_last_position_send_ms = HAL_GetTick();
 }
 
-static void F32C_Gimbal_SendPositionBoth_Throttled(uint32_t now)
+static void F32C_Gimbal_QueuePositionTarget(int32_t motor1_pos_x10, int32_t motor2_pos_x10)
 {
-    static uint32_t last_position_send_ms = 0;
-    static uint8_t first_send = 1;
+    g_pending_yaw_x10 = clamp_i32(motor1_pos_x10, F32C_YAW_MIN_X10, F32C_YAW_MAX_X10);
+    g_pending_pitch_x10 = clamp_i32(motor2_pos_x10, F32C_PITCH_MIN_X10, F32C_PITCH_MAX_X10);
+    g_pending_position_valid = 1;
 
-    if((first_send == 0) &&
-       ((now - last_position_send_ms) < F32C_POSITION_SEND_PERIOD_MS)){
+    /* Keep the public target variables as the latest desired target, even before
+     * the next physical F32C send. This makes subsequent 20ms control iterations
+     * accumulate from the newest target instead of stale last-sent values.
+     */
+    Motor1_T_Position = g_pending_yaw_x10;
+    Motor2_T_Position = g_pending_pitch_x10;
+}
+
+static void F32C_Gimbal_SendPendingIfDue(uint32_t now)
+{
+    if(g_pending_position_valid == 0){
         return;
     }
 
-    first_send = 0;
-    last_position_send_ms = now;
+    if((g_last_position_send_ms != 0) &&
+       ((now - g_last_position_send_ms) < F32C_POSITION_SEND_PERIOD_MS)){
+        return;
+    }
+
+    Motor1_T_Position = g_pending_yaw_x10;
+    Motor2_T_Position = g_pending_pitch_x10;
 
     F32C_Gimbal_SendPositionBoth();
 
+    g_last_position_send_ms = now;
+    g_pending_position_valid = 0;
+
 #if F32C_DEBUG_PRINT_ENABLE
-    printf("POS SEND tgt1=%ld tgt2=%ld\r\n",
+    printf("PENDING SEND tgt1=%ld tgt2=%ld\r\n",
            (long)Motor1_T_Position,
            (long)Motor2_T_Position);
 #endif
@@ -306,7 +355,9 @@ void F32C_Gimbal_Init(void)
 
     /* Startup preset: use calibrated init pose instead of mechanical 0,0. */
     F32C_Gimbal_SetTarget(F32C_INIT_YAW_X10, F32C_INIT_PITCH_X10);
+    g_pending_position_valid = 0;
     F32C_Gimbal_SendPositionBoth();
+    g_last_position_send_ms = HAL_GetTick();
 #endif
 
 #if F32C_MANUAL_POSITION_TEST_ENABLE
@@ -415,11 +466,14 @@ void F32C_Gimbal_Task(void)
         yaw_step *= F32C_YAW_DIR;
         pitch_step *= F32C_PITCH_DIR;
 
-        yaw_step = clamp_i32(yaw_step, -F32C_YAW_STEP_LIMIT_X10, F32C_YAW_STEP_LIMIT_X10);
+        {
+            int32_t yaw_limit_x10 = f32c_get_yaw_step_limit_x10(dx);
+            yaw_step = clamp_i32(yaw_step, -yaw_limit_x10, yaw_limit_x10);
+        }
         pitch_step = clamp_i32(pitch_step, -F32C_PITCH_STEP_LIMIT_X10, F32C_PITCH_STEP_LIMIT_X10);
 
-        F32C_Gimbal_SetTarget(Motor1_T_Position + yaw_step,
-                              Motor2_T_Position + pitch_step);
+        F32C_Gimbal_QueuePositionTarget(Motor1_T_Position + yaw_step,
+                                        Motor2_T_Position + pitch_step);
 #endif
     } else {
 #if F32C_TRACK_USE_SPEED_MODE
@@ -435,6 +489,6 @@ void F32C_Gimbal_Task(void)
 #if F32C_TRACK_USE_SPEED_MODE
     F32C_Gimbal_SendSpeedBoth();
 #else
-    F32C_Gimbal_SendPositionBoth_Throttled(now);
+    F32C_Gimbal_SendPendingIfDue(now);
 #endif
 }
