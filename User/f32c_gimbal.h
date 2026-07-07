@@ -12,7 +12,6 @@
 #define F32C_MOTOR1_ID              1
 #define F32C_MOTOR2_ID              2
 
-
 #define F32C_MODE_SPEED             0
 /* 1: multi-turn position with T trajectory planning. */
 #define F32C_MODE_POSITION_T        1
@@ -27,28 +26,38 @@
 #define F32C_CONTROL_PERIOD_MS      20
 #define F32C_VISION_TIMEOUT_MS      300
 
-/* Test-only change:
- * Keep the vision/control calculation period at 20ms, but throttle F32C
- * position-frame output to 50ms and insert a small gap between motor frames.
+/* Keep the previous verified fix:
+ * control still runs at 20ms, but F32C position frames are sent at <= 50ms,
+ * with a short gap between motor1 and motor2 frames.
  */
 #define F32C_POSITION_SEND_PERIOD_MS 50
 #define F32C_INTER_MOTOR_DELAY_MS    10
 
+/* Legacy common deadzone kept for compatibility/reference, but the task now uses
+ * separated X/Y deadzones below.
+ */
 #define F32C_DEADZONE_PX            3
+#define F32C_DEADZONE_X_PX          8
+#define F32C_DEADZONE_Y_PX          10
 #define F32C_MIN_CONFIDENCE         40
 
-/* Direction depends on camera/gimbal installation. Change signs if it moves away. */
-#define F32C_YAW_DIR                -1
+/* Direction depends on camera/gimbal installation.
+ * This patch flips yaw because current test shows left/right is reversed.
+ * If your final hardware behaves opposite, change this back to -1.
+ */
+#define F32C_YAW_DIR                1
 #define F32C_PITCH_DIR              -1
 
-/* Position unit is 0.1 degree. These defaults are deliberately conservative. */
+/* Position unit is 0.1 degree. */
 #define F32C_YAW_K_NUM              1
 #define F32C_YAW_K_DEN              1
-#define F32C_PITCH_K_NUM            1
-#define F32C_PITCH_K_DEN            1
 
-#define F32C_YAW_STEP_LIMIT_X10     8
-#define F32C_PITCH_STEP_LIMIT_X10   8
+/* Pitch is deliberately slower/stabler than yaw to reduce vertical oscillation. */
+#define F32C_PITCH_K_NUM            1
+#define F32C_PITCH_K_DEN            3
+
+#define F32C_YAW_STEP_LIMIT_X10     6
+#define F32C_PITCH_STEP_LIMIT_X10   3
 
 #define F32C_YAW_SPEED_K_NUM        1
 #define F32C_YAW_SPEED_K_DEN        2

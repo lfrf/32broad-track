@@ -355,7 +355,7 @@ void F32C_Gimbal_Task(void)
 #if F32C_DEBUG_PRINT_ENABLE
     if((now - last_debug_ms) >= F32C_DEBUG_PRINT_PERIOD_MS){
         last_debug_ms = now;
-        printf("GIMBAL vc=%lu found=%u conf=%u dx=%d dy=%d tgt1=%ld tgt2=%ld spd1=%d spd2=%d age=%lu\r\n",
+        printf("GIMBAL vc=%lu found=%u conf=%u raw_dx=%d raw_dy=%d tgt1=%ld tgt2=%ld spd1=%d spd2=%d age=%lu\r\n",
                (unsigned long)g_vision_target.valid_count,
                (unsigned int)found,
                (unsigned int)g_vision_target.confidence,
@@ -374,8 +374,8 @@ void F32C_Gimbal_Task(void)
        (found != 0) &&
        (g_vision_target.confidence >= F32C_MIN_CONFIDENCE)){
 
-        dx = apply_deadzone(g_vision_target.dx, F32C_DEADZONE_PX);
-        dy = apply_deadzone(g_vision_target.dy, F32C_DEADZONE_PX);
+        dx = apply_deadzone(g_vision_target.dx, F32C_DEADZONE_X_PX);
+        dy = apply_deadzone(g_vision_target.dy, F32C_DEADZONE_Y_PX);
 
 #if F32C_TRACK_USE_SPEED_MODE
         yaw_step = ((int32_t)dx * F32C_YAW_SPEED_K_NUM) / F32C_YAW_SPEED_K_DEN;
