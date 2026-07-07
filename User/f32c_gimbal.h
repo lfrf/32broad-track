@@ -27,6 +27,13 @@
 #define F32C_CONTROL_PERIOD_MS      20
 #define F32C_VISION_TIMEOUT_MS      300
 
+/* Test-only change:
+ * Keep the vision/control calculation period at 20ms, but throttle F32C
+ * position-frame output to 50ms and insert a small gap between motor frames.
+ */
+#define F32C_POSITION_SEND_PERIOD_MS 50
+#define F32C_INTER_MOTOR_DELAY_MS    10
+
 #define F32C_DEADZONE_PX            3
 #define F32C_MIN_CONFIDENCE         40
 
@@ -66,13 +73,3 @@ void F32C_Gimbal_SetTarget(int32_t motor1_pos_x10, int32_t motor2_pos_x10);
 void F32C_Gimbal_SendPositionBoth(void);
 
 #endif
-
-
-
-
-
-
-
-
-
-

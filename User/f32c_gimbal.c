@@ -155,7 +155,30 @@ void F32C_Gimbal_SetTarget(int32_t motor1_pos_x10, int32_t motor2_pos_x10)
 void F32C_Gimbal_SendPositionBoth(void)
 {
     f32c_send_position(F32C_MOTOR1_ID, Motor1_T_Position);
+    HAL_Delay(F32C_INTER_MOTOR_DELAY_MS);
     f32c_send_position(F32C_MOTOR2_ID, Motor2_T_Position);
+}
+
+static void F32C_Gimbal_SendPositionBoth_Throttled(uint32_t now)
+{
+    static uint32_t last_position_send_ms = 0;
+    static uint8_t first_send = 1;
+
+    if((first_send == 0) &&
+       ((now - last_position_send_ms) < F32C_POSITION_SEND_PERIOD_MS)){
+        return;
+    }
+
+    first_send = 0;
+    last_position_send_ms = now;
+
+    F32C_Gimbal_SendPositionBoth();
+
+#if F32C_DEBUG_PRINT_ENABLE
+    printf("POS SEND tgt1=%ld tgt2=%ld\r\n",
+           (long)Motor1_T_Position,
+           (long)Motor2_T_Position);
+#endif
 }
 
 static void f32c_hold_target(uint32_t hold_ms)
@@ -389,16 +412,6 @@ void F32C_Gimbal_Task(void)
 #if F32C_TRACK_USE_SPEED_MODE
     F32C_Gimbal_SendSpeedBoth();
 #else
-    F32C_Gimbal_SendPositionBoth();
+    F32C_Gimbal_SendPositionBoth_Throttled(now);
 #endif
 }
-
-
-
-
-
-
-
-
-
-
