@@ -74,8 +74,8 @@
 #define F32C_YAW_SPEED_LIMIT_RPM    35
 #define F32C_PITCH_SPEED_LIMIT_RPM  25
 
-#define F32C_YAW_MIN_X10            (-900)
-#define F32C_YAW_MAX_X10            (900)
+#define F32C_YAW_MIN_X10            (-1800)
+#define F32C_YAW_MAX_X10            (1800)
 #define F32C_PITCH_MIN_X10          (-450)
 #define F32C_PITCH_MAX_X10          (450)
 
