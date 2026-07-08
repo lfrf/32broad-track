@@ -1,7 +1,6 @@
 #include "f32c_gimbal.h"
 #include "protocol_test.h"
 
-#include <string.h>
 #include <stdio.h>
 
 static UART_HandleTypeDef huart3;
@@ -110,10 +109,6 @@ static int32_t f32c_get_yaw_step_limit_x10(int16_t err_x, int16_t raw_dx, F32C_E
         limit_x10 = F32C_YAW_STEP_LIMIT_NEAR_X10;
     }
 
-    /* raw_dx tells whether the target is close to the left/right frame edge.
-     * If it is, allow a larger yaw step only in the edge area. This keeps the
-     * center area stable while still rescuing the target before it exits.
-     */
     (void)raw_dx;
     if(edge_state == F32C_EDGE_STATE_PANIC){
         if(limit_x10 < F32C_YAW_STEP_LIMIT_PANIC_X10){
@@ -171,9 +166,6 @@ static uint8_t f32c_is_suspicious_edge_frame(int16_t raw_dx, int16_t raw_dy, F32
         return 1;
     }
 
-    /* If the last reliable point was already near one edge, a sudden jump to
-     * the opposite side is very likely a wrong corner/fragment detection.
-     */
     if((g_last_good_raw_dx <= -F32C_EDGE_WARN_X_PX) && (raw_dx > 0)){
         return 1;
     }
@@ -343,6 +335,33 @@ void F32C_Gimbal_SendPositionBoth(void)
     f32c_send_position(F32C_MOTOR2_ID, Motor2_T_Position);
 }
 
+void F32C_Gimbal_GotoInitPreset(void)
+{
+    int32_t init_yaw_x10;
+    int32_t init_pitch_x10;
+
+    init_yaw_x10 = clamp_i32(F32C_INIT_YAW_X10,
+                             -F32C_INIT_YAW_ABS_LIMIT_X10,
+                             F32C_INIT_YAW_ABS_LIMIT_X10);
+    init_pitch_x10 = clamp_i32(F32C_INIT_PITCH_X10,
+                               -F32C_INIT_PITCH_ABS_LIMIT_X10,
+                               F32C_INIT_PITCH_ABS_LIMIT_X10);
+
+    if((init_yaw_x10 != F32C_INIT_YAW_X10) ||
+       (init_pitch_x10 != F32C_INIT_PITCH_X10)){
+        printf("F32C init preset clamped: cfg=(%ld,%ld) cmd=(%ld,%ld)\r\n",
+               (long)F32C_INIT_YAW_X10,
+               (long)F32C_INIT_PITCH_X10,
+               (long)init_yaw_x10,
+               (long)init_pitch_x10);
+    }
+
+    F32C_Gimbal_SetTarget(init_yaw_x10, init_pitch_x10);
+    g_pending_position_valid = 0;
+    F32C_Gimbal_SendPositionBoth();
+    g_last_position_send_ms = HAL_GetTick();
+}
+
 void F32C_Gimbal_GotoBPreset(void)
 {
     F32C_Gimbal_SetTarget(F32C_B_YAW_X10, F32C_B_PITCH_X10);
@@ -446,11 +465,16 @@ void F32C_Gimbal_Init(void)
 
     f32c_uart3_init();
     printf("F32C init: USART3 PB10=TX PB11=RX baud=115200\r\n");
-    printf("F32C cfg: vision=%d speed_mode=%d manual_pos_test=%d\r\n",
-           F32C_VISION_ENABLE, F32C_TRACK_USE_SPEED_MODE, F32C_MANUAL_POSITION_TEST_ENABLE);
-    printf("F32C calibration: init=(%ld,%ld) B=(%ld,%ld) B_bias=(%d,%d)\r\n",
+    printf("F32C cfg: vision=%d speed_mode=%d manual_pos_test=%d init_preset=%d\r\n",
+           F32C_VISION_ENABLE,
+           F32C_TRACK_USE_SPEED_MODE,
+           F32C_MANUAL_POSITION_TEST_ENABLE,
+           F32C_INIT_PRESET_ENABLE);
+    printf("F32C calibration: init=(%ld,%ld) init_limit=(%ld,%ld) B=(%ld,%ld) B_bias=(%d,%d)\r\n",
            (long)F32C_INIT_YAW_X10,
            (long)F32C_INIT_PITCH_X10,
+           (long)F32C_INIT_YAW_ABS_LIMIT_X10,
+           (long)F32C_INIT_PITCH_ABS_LIMIT_X10,
            (long)F32C_B_YAW_X10,
            (long)F32C_B_PITCH_X10,
            (int)F32C_B_DX_BIAS,
@@ -508,11 +532,13 @@ void F32C_Gimbal_Init(void)
     f32c_send_speed(F32C_MOTOR2_ID, F32C_DEFAULT_SPEED);
     HAL_Delay(F32C_CMD_DELAY_MS);
 
-    /* Startup preset: use calibrated init pose instead of mechanical 0,0. */
-    F32C_Gimbal_SetTarget(F32C_INIT_YAW_X10, F32C_INIT_PITCH_X10);
-    g_pending_position_valid = 0;
-    F32C_Gimbal_SendPositionBoth();
-    g_last_position_send_ms = HAL_GetTick();
+#if F32C_INIT_PRESET_ENABLE
+    /* Boot preset only: move once to the absolute init joint pose.
+     * No vision delay/state-machine/ready judgment is added here.
+     * Normal vision tracking starts naturally when F32C_Gimbal_Task() runs.
+     */
+    F32C_Gimbal_GotoInitPreset();
+#endif
 #endif
 
 #if F32C_MANUAL_POSITION_TEST_ENABLE

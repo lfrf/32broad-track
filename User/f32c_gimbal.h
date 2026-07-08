@@ -105,16 +105,24 @@
  *
  * Unit of *_DX_BIAS / *_DY_BIAS:
  *   pixel error from MaixCAM2 vision packet.
- *
- * Fill these values after using the motor-only calibration firmware.
  */
 
 /* Startup preset:
- * Used only after power-on, so the camera/gimbal first points roughly toward
- * the target paper and vision tracking can start reliably.
+ * Absolute joint targets sent once during F32C_Gimbal_Init().
+ * This only moves the gimbal to a fixed camera-view pose after power-on.
+ * It does not delay vision tracking, does not judge target readiness, and does
+ * not interact with the main car controller.
  */
+#define F32C_INIT_PRESET_ENABLE     1
 #define F32C_INIT_YAW_X10           0
 #define F32C_INIT_PITCH_X10         10
+
+/* Safety clamps for the startup preset itself.
+ * They prevent accidental large boot moves if INIT_YAW/PITCH is edited wrongly.
+ * The final command is still also clamped by F32C_YAW/PITCH_MIN/MAX_X10.
+ */
+#define F32C_INIT_YAW_ABS_LIMIT_X10     300
+#define F32C_INIT_PITCH_ABS_LIMIT_X10   300
 
 /* B-point preset:
  * Optional. This is the yaw/pitch angle when laser hits the target center at B.
@@ -142,6 +150,7 @@ void F32C_Gimbal_Init(void);
 void F32C_Gimbal_Task(void);
 void F32C_Gimbal_SetTarget(int32_t motor1_pos_x10, int32_t motor2_pos_x10);
 void F32C_Gimbal_SendPositionBoth(void);
+void F32C_Gimbal_GotoInitPreset(void);
 void F32C_Gimbal_GotoBPreset(void);
 
 #endif
