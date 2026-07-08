@@ -95,8 +95,8 @@
 
 #define F32C_YAW_MIN_X10            (-3800)
 #define F32C_YAW_MAX_X10            (3800)
-#define F32C_PITCH_MIN_X10          (-450)
-#define F32C_PITCH_MAX_X10          (450)
+#define F32C_PITCH_MIN_X10          (-2700)
+#define F32C_PITCH_MAX_X10          (2700)
 
 /* ===================== Calibration values =====================
  *
@@ -114,8 +114,8 @@
  * not interact with the main car controller.
  */
 #define F32C_INIT_PRESET_ENABLE     1
-#define F32C_INIT_YAW_X10           0
-#define F32C_INIT_PITCH_X10         10
+#define F32C_INIT_YAW_X10           (-200)
+#define F32C_INIT_PITCH_X10         (1600)
 
 /* Safety clamps for the startup preset itself.
  * They prevent accidental large boot moves if INIT_YAW/PITCH is edited wrongly.
