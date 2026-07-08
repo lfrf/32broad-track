@@ -37,7 +37,7 @@
  * separated X/Y deadzones below.
  */
 #define F32C_DEADZONE_PX            3
-#define F32C_DEADZONE_X_PX          8
+#define F32C_DEADZONE_X_PX          10
 #define F32C_DEADZONE_Y_PX          10
 #define F32C_MIN_CONFIDENCE         40
 
@@ -60,8 +60,8 @@
  * horizontal oscillation near the center.
  */
 #define F32C_YAW_STEP_LIMIT_NEAR_X10   4
-#define F32C_YAW_STEP_LIMIT_MID_X10    10
-#define F32C_YAW_STEP_LIMIT_FAR_X10    16
+#define F32C_YAW_STEP_LIMIT_MID_X10    9
+#define F32C_YAW_STEP_LIMIT_FAR_X10    15
 #define F32C_YAW_MID_ERR_PX            16
 #define F32C_YAW_FAR_ERR_PX            32
 
@@ -73,8 +73,8 @@
 #define F32C_EDGE_WARN_X_PX             40
 #define F32C_EDGE_PANIC_X_PX            58
 #define F32C_EDGE_LOST_X_PX             70
-#define F32C_YAW_STEP_LIMIT_EDGE_X10    24
-#define F32C_YAW_STEP_LIMIT_PANIC_X10   30
+#define F32C_YAW_STEP_LIMIT_EDGE_X10    20
+#define F32C_YAW_STEP_LIMIT_PANIC_X10   25
 
 /* Reject suspicious center jumps when the target is already near the image edge.
  * This prevents the gimbal from blindly following a wrongly detected corner.
