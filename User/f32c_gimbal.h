@@ -16,7 +16,7 @@
 /* 1: multi-turn position with T trajectory planning. */
 #define F32C_MODE_POSITION_T        1
 
-#define F32C_DEFAULT_SPEED          160
+#define F32C_DEFAULT_SPEED          220
 #define F32C_BOOT_SELF_TEST_ENABLE  0
 #define F32C_BOOT_SPEED_TEST_ENABLE 0
 #define F32C_MANUAL_POSITION_TEST_ENABLE 0
@@ -60,8 +60,8 @@
  * horizontal oscillation near the center.
  */
 #define F32C_YAW_STEP_LIMIT_NEAR_X10   5
-#define F32C_YAW_STEP_LIMIT_MID_X10    8
-#define F32C_YAW_STEP_LIMIT_FAR_X10    10
+#define F32C_YAW_STEP_LIMIT_MID_X10    12
+#define F32C_YAW_STEP_LIMIT_FAR_X10    18
 #define F32C_YAW_MID_ERR_PX            16
 #define F32C_YAW_FAR_ERR_PX            32
 
