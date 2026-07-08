@@ -21,6 +21,12 @@ static int32_t g_pending_pitch_x10 = 0;
 static uint8_t g_pending_position_valid = 0;
 static uint32_t g_last_position_send_ms = 0;
 
+/* Current track segment supplied by the line-following/main-control board.
+ * It is used only for selecting the segmented laser bias.
+ */
+static uint8_t g_track_zone = F32C_TRACK_ZONE_AB;
+static uint32_t g_track_zone_start_ms = 0;
+
 typedef enum {
     F32C_EDGE_STATE_NORMAL = 0,
     F32C_EDGE_STATE_WARN,
@@ -81,6 +87,159 @@ static int32_t f32c_min_i32(int32_t a, int32_t b)
     return (a < b) ? a : b;
 }
 
+void F32C_Gimbal_SetTrackZone(uint8_t zone)
+{
+    zone &= 0x03;
+
+    if(zone != g_track_zone){
+        g_track_zone = zone;
+        g_track_zone_start_ms = HAL_GetTick();
+    }
+}
+
+uint8_t F32C_Gimbal_GetTrackZone(void)
+{
+    return g_track_zone;
+}
+
+static void f32c_zone_gpio_init(void)
+{
+#if F32C_TRACK_ZONE_GPIO_ENABLE
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    /* Enable both clocks so PA4/PA5 default and common PB alternatives work.
+     * If another GPIO port is selected in f32c_gimbal.h, enable its clock here.
+     */
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+
+    GPIO_InitStruct.Pin = F32C_ZONE0_GPIO_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(F32C_ZONE0_GPIO_PORT, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = F32C_ZONE1_GPIO_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(F32C_ZONE1_GPIO_PORT, &GPIO_InitStruct);
+#endif
+}
+
+static uint8_t f32c_read_zone_gpio_raw(void)
+{
+    uint8_t zone = 0;
+
+#if F32C_TRACK_ZONE_GPIO_ENABLE
+    if(HAL_GPIO_ReadPin(F32C_ZONE0_GPIO_PORT, F32C_ZONE0_GPIO_PIN) == GPIO_PIN_SET){
+        zone |= 0x01;
+    }
+
+    if(HAL_GPIO_ReadPin(F32C_ZONE1_GPIO_PORT, F32C_ZONE1_GPIO_PIN) == GPIO_PIN_SET){
+        zone |= 0x02;
+    }
+#else
+    zone = g_track_zone;
+#endif
+
+    return zone;
+}
+
+static void f32c_update_track_zone_from_gpio(uint32_t now)
+{
+#if F32C_TRACK_ZONE_GPIO_ENABLE
+    static uint32_t last_sample_ms = 0;
+    static uint8_t last_raw_zone = F32C_TRACK_ZONE_AB;
+    static uint8_t stable_count = 0;
+    uint8_t raw_zone;
+
+    if((now - last_sample_ms) < F32C_ZONE_SAMPLE_PERIOD_MS){
+        return;
+    }
+    last_sample_ms = now;
+
+    raw_zone = f32c_read_zone_gpio_raw();
+
+    if(raw_zone == last_raw_zone){
+        if(stable_count < F32C_ZONE_STABLE_SAMPLES){
+            stable_count++;
+        }
+    } else {
+        last_raw_zone = raw_zone;
+        stable_count = 1;
+    }
+
+    if(stable_count >= F32C_ZONE_STABLE_SAMPLES){
+        F32C_Gimbal_SetTrackZone(raw_zone);
+    }
+#else
+    (void)now;
+#endif
+}
+
+static int16_t f32c_lerp_i16(int16_t start, int16_t end, uint32_t elapsed_ms, uint32_t total_ms)
+{
+    int32_t delta;
+
+    if(total_ms == 0){
+        return end;
+    }
+
+    if(elapsed_ms >= total_ms){
+        return end;
+    }
+
+    delta = (int32_t)end - (int32_t)start;
+    return (int16_t)((int32_t)start + (delta * (int32_t)elapsed_ms) / (int32_t)total_ms);
+}
+
+static void f32c_get_current_bias(uint32_t now, int16_t *dx_bias, int16_t *dy_bias)
+{
+    uint32_t elapsed;
+
+#if F32C_FORCE_TRACK_ZONE_ENABLE
+    g_track_zone = F32C_FORCE_TRACK_ZONE;
+#endif
+
+    elapsed = now - g_track_zone_start_ms;
+
+    switch(g_track_zone){
+    case F32C_TRACK_ZONE_AB:
+        *dx_bias = f32c_lerp_i16(F32C_AB_DX_BIAS_START, F32C_AB_DX_BIAS_END,
+                                 elapsed, F32C_AB_DURATION_MS);
+        *dy_bias = f32c_lerp_i16(F32C_AB_DY_BIAS_START, F32C_AB_DY_BIAS_END,
+                                 elapsed, F32C_AB_DURATION_MS);
+        break;
+
+    case F32C_TRACK_ZONE_BC:
+        *dx_bias = f32c_lerp_i16(F32C_BC_DX_BIAS_START, F32C_BC_DX_BIAS_END,
+                                 elapsed, F32C_BC_DURATION_MS);
+        *dy_bias = f32c_lerp_i16(F32C_BC_DY_BIAS_START, F32C_BC_DY_BIAS_END,
+                                 elapsed, F32C_BC_DURATION_MS);
+        break;
+
+    case F32C_TRACK_ZONE_CD:
+        *dx_bias = f32c_lerp_i16(F32C_CD_DX_BIAS_START, F32C_CD_DX_BIAS_END,
+                                 elapsed, F32C_CD_DURATION_MS);
+        *dy_bias = f32c_lerp_i16(F32C_CD_DY_BIAS_START, F32C_CD_DY_BIAS_END,
+                                 elapsed, F32C_CD_DURATION_MS);
+        break;
+
+    case F32C_TRACK_ZONE_DA:
+        *dx_bias = f32c_lerp_i16(F32C_DA_DX_BIAS_START, F32C_DA_DX_BIAS_END,
+                                 elapsed, F32C_DA_DURATION_MS);
+        *dy_bias = f32c_lerp_i16(F32C_DA_DY_BIAS_START, F32C_DA_DY_BIAS_END,
+                                 elapsed, F32C_DA_DURATION_MS);
+        break;
+
+    default:
+        *dx_bias = F32C_B_DX_BIAS;
+        *dy_bias = F32C_B_DY_BIAS;
+        break;
+    }
+}
+
 static F32C_EdgeState f32c_get_edge_state(int16_t raw_dx)
 {
     int32_t adx = f32c_abs_i32((int32_t)raw_dx);
@@ -131,11 +290,19 @@ static int16_t apply_deadzone(int16_t v, int16_t zone)
     return v;
 }
 
-static void f32c_calc_laser_error(int16_t raw_dx, int16_t raw_dy, int16_t *err_x, int16_t *err_y)
+static void f32c_calc_laser_error(uint32_t now,
+                                  int16_t raw_dx,
+                                  int16_t raw_dy,
+                                  int16_t *err_x,
+                                  int16_t *err_y)
 {
+    int16_t dx_bias;
+    int16_t dy_bias;
+
 #if F32C_USE_B_VISION_BIAS
-    *err_x = (int16_t)(raw_dx - F32C_B_DX_BIAS);
-    *err_y = (int16_t)(raw_dy - F32C_B_DY_BIAS);
+    f32c_get_current_bias(now, &dx_bias, &dy_bias);
+    *err_x = (int16_t)(raw_dx - dx_bias);
+    *err_y = (int16_t)(raw_dy - dy_bias);
 #else
     *err_x = raw_dx;
     *err_y = raw_dy;
@@ -203,7 +370,7 @@ static uint8_t f32c_get_safe_vision_error(int16_t raw_dx,
     int16_t err_y;
     uint8_t suspicious;
 
-    f32c_calc_laser_error(raw_dx, raw_dy, &err_x, &err_y);
+    f32c_calc_laser_error(now, raw_dx, raw_dy, &err_x, &err_y);
     *edge_state = f32c_get_edge_state(raw_dx);
     *used_edge_hold = 0;
 
@@ -488,13 +655,18 @@ void F32C_Gimbal_Init(void)
     uint8_t wake = 0x00;
 
     f32c_uart3_init();
+    f32c_zone_gpio_init();
+    g_track_zone = F32C_TRACK_ZONE_AB;
+    g_track_zone_start_ms = HAL_GetTick();
+
     printf("F32C init: USART3 PB10=TX PB11=RX baud=115200\r\n");
-    printf("F32C cfg: vision=%d speed_mode=%d manual_pos_test=%d boot_relative_init=%d\r\n",
+    printf("F32C cfg: vision=%d speed_mode=%d manual_pos_test=%d boot_relative_init=%d zone_gpio=%d\r\n",
            F32C_VISION_ENABLE,
            F32C_TRACK_USE_SPEED_MODE,
            F32C_MANUAL_POSITION_TEST_ENABLE,
-           F32C_BOOT_RELATIVE_INIT_ENABLE);
-    printf("F32C boot relative init: delta=(%ld,%ld) delta_limit=(%ld,%ld) zero_hold=%d B=(%ld,%ld) B_bias=(%d,%d)\r\n",
+           F32C_BOOT_RELATIVE_INIT_ENABLE,
+           F32C_TRACK_ZONE_GPIO_ENABLE);
+    printf("F32C boot relative init: delta=(%ld,%ld) delta_limit=(%ld,%ld) zero_hold=%d B=(%ld,%ld) B_bias=(%d,%d) zone=%u\r\n",
            (long)F32C_BOOT_YAW_DELTA_X10,
            (long)F32C_BOOT_PITCH_DELTA_X10,
            (long)F32C_BOOT_YAW_DELTA_LIMIT_X10,
@@ -503,7 +675,8 @@ void F32C_Gimbal_Init(void)
            (long)F32C_B_YAW_X10,
            (long)F32C_B_PITCH_X10,
            (int)F32C_B_DX_BIAS,
-           (int)F32C_B_DY_BIAS);
+           (int)F32C_B_DY_BIAS,
+           (unsigned int)g_track_zone);
 
     /* Wake up the motor TTL port, then give the F32C controller time to boot. */
     HAL_UART_Transmit(&huart3, &wake, 1, 20);
@@ -624,6 +797,8 @@ void F32C_Gimbal_Task(void)
     }
     last_control_ms = now;
 
+    f32c_update_track_zone_from_gpio(now);
+
     if(g_vision_target.valid_count != last_seen_count){
         last_seen_count = g_vision_target.valid_count;
         last_seen_ms = now;
@@ -635,15 +810,20 @@ void F32C_Gimbal_Task(void)
 
 #if F32C_DEBUG_PRINT_ENABLE
     if((now - last_debug_ms) >= F32C_DEBUG_PRINT_PERIOD_MS){
+        int16_t dbg_dx_bias;
+        int16_t dbg_dy_bias;
+
         last_debug_ms = now;
-        printf("GIMBAL vc=%lu found=%u conf=%u raw_dx=%d raw_dy=%d bias_dx=%d bias_dy=%d tgt1=%ld tgt2=%ld spd1=%d spd2=%d age=%lu edge=%d\r\n",
+        f32c_get_current_bias(now, &dbg_dx_bias, &dbg_dy_bias);
+        printf("GIMBAL vc=%lu found=%u conf=%u raw_dx=%d raw_dy=%d zone=%u bias_dx=%d bias_dy=%d tgt1=%ld tgt2=%ld spd1=%d spd2=%d age=%lu edge=%d\r\n",
                (unsigned long)g_vision_target.valid_count,
                (unsigned int)found,
                (unsigned int)g_vision_target.confidence,
                (int)raw_dx,
                (int)raw_dy,
-               (int)F32C_B_DX_BIAS,
-               (int)F32C_B_DY_BIAS,
+               (unsigned int)g_track_zone,
+               (int)dbg_dx_bias,
+               (int)dbg_dy_bias,
                (long)Motor1_T_Position,
                (long)Motor2_T_Position,
                (int)Motor1_T_Speed,

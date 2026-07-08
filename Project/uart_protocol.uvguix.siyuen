@@ -93,8 +93,8 @@
       <flags>0</flags>
       <showCmd>1</showCmd>
       <MinPosition>
-        <xPos>-32000</xPos>
-        <yPos>-32000</yPos>
+        <xPos>-1</xPos>
+        <yPos>-1</yPos>
       </MinPosition>
       <MaxPosition>
         <xPos>-1</xPos>
@@ -102,8 +102,8 @@
       </MaxPosition>
       <NormalPosition>
         <Top>85</Top>
-        <Left>-19</Left>
-        <Right>1639</Right>
+        <Left>-7</Left>
+        <Right>1651</Right>
         <Bottom>836</Bottom>
       </NormalPosition>
     </WindowPosition>

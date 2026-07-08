@@ -127,7 +127,7 @@
  * Tune these two values on-site.
  */
 #define F32C_BOOT_YAW_DELTA_X10             (-250)
-#define F32C_BOOT_PITCH_DELTA_X10           (-200)
+#define F32C_BOOT_PITCH_DELTA_X10           0
 
 /* Safety clamps for the boot relative offset itself.
  * These are delta limits, not absolute joint limits.
@@ -157,8 +157,69 @@
  * put those raw values here.
  */
 #define F32C_USE_B_VISION_BIAS      1
-#define F32C_B_DX_BIAS              2
-#define F32C_B_DY_BIAS              (-18)
+#define F32C_B_DX_BIAS              (-2)
+#define F32C_B_DY_BIAS              (-6)
+
+/* ===================== Track zone input and segmented bias =====================
+ *
+ * Two-line absolute zone code from the line-following/main-control board:
+ *   ZONE1 ZONE0 = 00: A->B straight
+ *   ZONE1 ZONE0 = 01: B->C first turn
+ *   ZONE1 ZONE0 = 10: C->D straight
+ *   ZONE1 ZONE0 = 11: D->A second turn
+ *
+ * STM32 wiring default:
+ *   PA4 = ZONE0 low bit, connected to main-control PB17
+ *   PA5 = ZONE1 high bit, connected to main-control PB18
+ *   GND must be shared.
+ */
+#define F32C_TRACK_ZONE_AB          0
+#define F32C_TRACK_ZONE_BC          1
+#define F32C_TRACK_ZONE_CD          2
+#define F32C_TRACK_ZONE_DA          3
+
+#define F32C_TRACK_ZONE_GPIO_ENABLE 1
+#define F32C_ZONE0_GPIO_PORT        GPIOA
+#define F32C_ZONE0_GPIO_PIN         GPIO_PIN_4
+#define F32C_ZONE1_GPIO_PORT        GPIOA
+#define F32C_ZONE1_GPIO_PIN         GPIO_PIN_5
+
+/* Debounce the 2-bit code so that brief transition states do not switch bias. */
+#define F32C_ZONE_SAMPLE_PERIOD_MS  20
+#define F32C_ZONE_STABLE_SAMPLES    2
+
+/* Force-zone mode for calibration without connecting the main-control board. */
+#define F32C_FORCE_TRACK_ZONE_ENABLE 0
+#define F32C_FORCE_TRACK_ZONE        F32C_TRACK_ZONE_AB
+
+/* Segment duration for start->end bias interpolation. */
+#define F32C_AB_DURATION_MS         3200
+#define F32C_BC_DURATION_MS         4470
+#define F32C_CD_DURATION_MS         4500
+#define F32C_DA_DURATION_MS         5340
+
+/* Initial values intentionally equal the legacy B-point bias.
+ * After calibration, tune DY_BIAS first because the current main error is pitch.
+ */
+#define F32C_AB_DX_BIAS_START       (-6)
+#define F32C_AB_DY_BIAS_START       (-12)
+#define F32C_AB_DX_BIAS_END         (-2)
+#define F32C_AB_DY_BIAS_END         (-8)
+
+#define F32C_BC_DX_BIAS_START       (-3)
+#define F32C_BC_DY_BIAS_START       (-7)
+#define F32C_BC_DX_BIAS_END         (-2)
+#define F32C_BC_DY_BIAS_END         (-5)
+
+#define F32C_CD_DX_BIAS_START       (-2)
+#define F32C_CD_DY_BIAS_START       (-5)
+#define F32C_CD_DX_BIAS_END         (-2)
+#define F32C_CD_DY_BIAS_END         (-6)
+
+#define F32C_DA_DX_BIAS_START       (-2)
+#define F32C_DA_DY_BIAS_START       (-6)
+#define F32C_DA_DX_BIAS_END         (-1)
+#define F32C_DA_DY_BIAS_END         (-6)
 
 extern int32_t Motor1_T_Position;
 extern int32_t Motor2_T_Position;
@@ -171,5 +232,7 @@ void F32C_Gimbal_SetTarget(int32_t motor1_pos_x10, int32_t motor2_pos_x10);
 void F32C_Gimbal_SendPositionBoth(void);
 void F32C_Gimbal_GotoBootRelativeInit(void);
 void F32C_Gimbal_GotoBPreset(void);
+void F32C_Gimbal_SetTrackZone(uint8_t zone);
+uint8_t F32C_Gimbal_GetTrackZone(void);
 
 #endif

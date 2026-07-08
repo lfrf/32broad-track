@@ -51,7 +51,7 @@ I (..\Libraries\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_hcd.h)(0x6A4D10D7)
 I (..\User\bsp\bsp_debug_usart.h)(0x6A4D10D9)
 I (..\User\bsp\bsp_led.h)(0x6A4D10D9)
 I (..\User\protocol_test.h)(0x6A4D10D9)
-I (..\User\f32c_gimbal.h)(0x6A4DF1AA)
+I (..\User\f32c_gimbal.h)(0x6A4E55C1)
 F (..\User\stm32f1xx_it.c)(0x6A4D10D9)(-xc -std=c99 --target=arm-arm-none-eabi -mcpu=cortex-m3 -c-fno-rtti -funsigned-char -fshort-enums -fshort-wchar-D__EVAL -D__MICROLIB -gdwarf-4 -O1 -ffunction-sections -Wno-packed -Wno-missing-variable-declarations -Wno-missing-prototypes -Wno-missing-noreturn -Wno-sign-conversion -Wno-nonportable-include-path -Wno-reserved-id-macro -Wno-unused-macros -Wno-documentation-unknown-command -Wno-documentation -Wno-license-management -Wno-parentheses-equality -Wno-reserved-identifier -I ../Libraries/CMSIS/Include -I ../Libraries/CMSIS/Device/ST/STM32F1xx/Include -I ../Libraries/STM32F1xx_HAL_Driver/Inc -I ../User -I ../User/bsp -I ../User/middleware-IC:/Users/siyuen/AppData/Local/Arm/Packs/Keil/STM32F1xx_DFP/2.3.0/Device/Include-D__UVISION_VERSION="543" -DSTM32F10X_MD -DNDEBUG -DUSE_HAL_DRIVER -DSTM32F103xB-o ./output/stm32f1xx_it.o -MMD)
 I (..\User\main.h)(0x6A4D10D9)
 I (..\Libraries\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal.h)(0x6A4D10D7)
@@ -152,8 +152,8 @@ I (..\Libraries\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_hcd.h)(0x6A4D10D7)
 I (..\User\middleware\ringbuffer.h)(0x6A4D10D9)
 I (..\User\middleware\serial_protocol.h)(0x6A4D10D9)
 I (..\User\protocol_test.h)(0x6A4D10D9)
-F (..\User\f32c_gimbal.c)(0x6A4DD332)(-xc -std=c99 --target=arm-arm-none-eabi -mcpu=cortex-m3 -c-fno-rtti -funsigned-char -fshort-enums -fshort-wchar-D__EVAL -D__MICROLIB -gdwarf-4 -O1 -ffunction-sections -Wno-packed -Wno-missing-variable-declarations -Wno-missing-prototypes -Wno-missing-noreturn -Wno-sign-conversion -Wno-nonportable-include-path -Wno-reserved-id-macro -Wno-unused-macros -Wno-documentation-unknown-command -Wno-documentation -Wno-license-management -Wno-parentheses-equality -Wno-reserved-identifier -I ../Libraries/CMSIS/Include -I ../Libraries/CMSIS/Device/ST/STM32F1xx/Include -I ../Libraries/STM32F1xx_HAL_Driver/Inc -I ../User -I ../User/bsp -I ../User/middleware-IC:/Users/siyuen/AppData/Local/Arm/Packs/Keil/STM32F1xx_DFP/2.3.0/Device/Include-D__UVISION_VERSION="543" -DSTM32F10X_MD -DNDEBUG -DUSE_HAL_DRIVER -DSTM32F103xB-o ./output/f32c_gimbal.o -MMD)
-I (..\User\f32c_gimbal.h)(0x6A4DF1AA)
+F (..\User\f32c_gimbal.c)(0x6A4E4D24)(-xc -std=c99 --target=arm-arm-none-eabi -mcpu=cortex-m3 -c-fno-rtti -funsigned-char -fshort-enums -fshort-wchar-D__EVAL -D__MICROLIB -gdwarf-4 -O1 -ffunction-sections -Wno-packed -Wno-missing-variable-declarations -Wno-missing-prototypes -Wno-missing-noreturn -Wno-sign-conversion -Wno-nonportable-include-path -Wno-reserved-id-macro -Wno-unused-macros -Wno-documentation-unknown-command -Wno-documentation -Wno-license-management -Wno-parentheses-equality -Wno-reserved-identifier -I ../Libraries/CMSIS/Include -I ../Libraries/CMSIS/Device/ST/STM32F1xx/Include -I ../Libraries/STM32F1xx_HAL_Driver/Inc -I ../User -I ../User/bsp -I ../User/middleware-IC:/Users/siyuen/AppData/Local/Arm/Packs/Keil/STM32F1xx_DFP/2.3.0/Device/Include-D__UVISION_VERSION="543" -DSTM32F10X_MD -DNDEBUG -DUSE_HAL_DRIVER -DSTM32F103xB-o ./output/f32c_gimbal.o -MMD)
+I (..\User\f32c_gimbal.h)(0x6A4E55C1)
 I (..\Libraries\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal.h)(0x6A4D10D7)
 I (..\User\stm32f1xx_hal_conf.h)(0x6A4D10D9)
 I (..\Libraries\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_rcc.h)(0x6A4D10D7)
