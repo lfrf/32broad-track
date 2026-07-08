@@ -240,6 +240,34 @@ static void f32c_get_current_bias(uint32_t now, int16_t *dx_bias, int16_t *dy_bi
     }
 }
 
+static uint8_t f32c_is_recenter_guard_active(uint32_t now)
+{
+#if F32C_RECENTER_GUARD_ENABLE
+    uint32_t elapsed = now - g_track_zone_start_ms;
+
+    if(elapsed > F32C_RECENTER_GUARD_MS){
+        return 0;
+    }
+
+#if F32C_RECENTER_GUARD_APPLY_CD
+    if(g_track_zone == F32C_TRACK_ZONE_CD){
+        return 1;
+    }
+#endif
+
+#if F32C_RECENTER_GUARD_APPLY_AB
+    if(g_track_zone == F32C_TRACK_ZONE_AB){
+        return 1;
+    }
+#endif
+
+#else
+    (void)now;
+#endif
+
+    return 0;
+}
+
 static F32C_EdgeState f32c_get_edge_state(int16_t raw_dx)
 {
     int32_t adx = f32c_abs_i32((int32_t)raw_dx);
@@ -873,6 +901,9 @@ void F32C_Gimbal_Task(void)
                 int32_t yaw_limit_x10 = f32c_get_yaw_step_limit_x10(dx, raw_dx, edge_state);
                 if(used_edge_hold != 0){
                     yaw_limit_x10 = f32c_min_i32(yaw_limit_x10, F32C_EDGE_HOLD_STEP_X10);
+                }
+                if(f32c_is_recenter_guard_active(now) != 0){
+                    yaw_limit_x10 = f32c_min_i32(yaw_limit_x10, F32C_RECENTER_GUARD_YAW_LIMIT_X10);
                 }
                 yaw_step = clamp_i32(yaw_step, -yaw_limit_x10, yaw_limit_x10);
             }

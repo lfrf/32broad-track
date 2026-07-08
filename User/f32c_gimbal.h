@@ -16,7 +16,7 @@
 /* 1: multi-turn position with T trajectory planning. */
 #define F32C_MODE_POSITION_T        1
 
-#define F32C_DEFAULT_SPEED          220
+#define F32C_DEFAULT_SPEED          250
 #define F32C_BOOT_SELF_TEST_ENABLE  0
 #define F32C_BOOT_SPEED_TEST_ENABLE 0
 #define F32C_MANUAL_POSITION_TEST_ENABLE 0
@@ -83,6 +83,16 @@
 #define F32C_EDGE_JUMP_REJECT_Y_PX      20
 #define F32C_EDGE_HOLD_MS               120
 #define F32C_EDGE_HOLD_STEP_X10         10
+
+/* Recenter guard: when the car exits a turn and the chassis heading snaps back,
+ * raw_dx may briefly jump toward the frame edge. During the first short window
+ * after entering CD or AB, cap yaw step to avoid edge-boost overreaction.
+ */
+#define F32C_RECENTER_GUARD_ENABLE       1
+#define F32C_RECENTER_GUARD_MS           350
+#define F32C_RECENTER_GUARD_YAW_LIMIT_X10 8
+#define F32C_RECENTER_GUARD_APPLY_AB     1
+#define F32C_RECENTER_GUARD_APPLY_CD     1
 
 #define F32C_PITCH_STEP_LIMIT_X10   5
 
@@ -198,8 +208,9 @@
 #define F32C_CD_DURATION_MS         4500
 #define F32C_DA_DURATION_MS         5340
 
-/* Initial values intentionally equal the legacy B-point bias.
- * After calibration, tune DY_BIAS first because the current main error is pitch.
+/* Segmented laser aiming bias.
+ * Current values are calibrated from field tests. Tune DY_BIAS first if
+ * vertical laser error remains, then tune DX_BIAS.
  */
 #define F32C_AB_DX_BIAS_START       (-6)
 #define F32C_AB_DY_BIAS_START       (-12)
