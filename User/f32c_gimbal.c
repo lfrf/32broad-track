@@ -89,11 +89,32 @@ static int32_t f32c_min_i32(int32_t a, int32_t b)
 
 void F32C_Gimbal_SetTrackZone(uint8_t zone)
 {
+#if F32C_RETURN_A_CCW_ENABLE
+    uint8_t old_zone;
+    int32_t yaw_target;
+#endif
+
     zone &= 0x03;
 
     if(zone != g_track_zone){
+#if F32C_RETURN_A_CCW_ENABLE
+        old_zone = g_track_zone;
+#endif
         g_track_zone = zone;
         g_track_zone_start_ms = HAL_GetTick();
+
+#if F32C_RETURN_A_CCW_ENABLE
+        if((old_zone == F32C_TRACK_ZONE_DA) &&
+           (zone == F32C_TRACK_ZONE_AB)){
+            yaw_target = Motor1_T_Position + F32C_RETURN_A_CCW_YAW_X10;
+            g_pending_yaw_x10 = clamp_i32(yaw_target, F32C_YAW_MIN_X10, F32C_YAW_MAX_X10);
+            g_pending_pitch_x10 = Motor2_T_Position;
+            g_pending_position_valid = 1;
+
+            Motor1_T_Position = g_pending_yaw_x10;
+            Motor2_T_Position = g_pending_pitch_x10;
+        }
+#endif
     }
 }
 

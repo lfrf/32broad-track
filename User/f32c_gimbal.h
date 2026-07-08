@@ -221,6 +221,13 @@
 #define F32C_DA_DX_BIAS_END         (-1)
 #define F32C_DA_DY_BIAS_END         (-6)
 
+/* Optional one-shot yaw offset when the route returns from D->A to A->B.
+ * Unit: 0.1 degree. -150 means -15.0 degrees.
+ * If the hardware turns clockwise instead of counter-clockwise, change the sign.
+ */
+#define F32C_RETURN_A_CCW_ENABLE        1
+#define F32C_RETURN_A_CCW_YAW_X10       (-150)
+
 extern int32_t Motor1_T_Position;
 extern int32_t Motor2_T_Position;
 extern int32_t Motor1_Current_Position;
