@@ -59,9 +59,9 @@
 /* Segmented yaw step limits for faster large-error recovery without large
  * horizontal oscillation near the center.
  */
-#define F32C_YAW_STEP_LIMIT_NEAR_X10   5
-#define F32C_YAW_STEP_LIMIT_MID_X10    12
-#define F32C_YAW_STEP_LIMIT_FAR_X10    18
+#define F32C_YAW_STEP_LIMIT_NEAR_X10   4
+#define F32C_YAW_STEP_LIMIT_MID_X10    10
+#define F32C_YAW_STEP_LIMIT_FAR_X10    16
 #define F32C_YAW_MID_ERR_PX            16
 #define F32C_YAW_FAR_ERR_PX            32
 
@@ -84,7 +84,7 @@
 #define F32C_EDGE_HOLD_MS               120
 #define F32C_EDGE_HOLD_STEP_X10         10
 
-#define F32C_PITCH_STEP_LIMIT_X10   3
+#define F32C_PITCH_STEP_LIMIT_X10   5
 
 #define F32C_YAW_SPEED_K_NUM        1
 #define F32C_YAW_SPEED_K_DEN        2
