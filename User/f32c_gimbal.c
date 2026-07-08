@@ -22,6 +22,25 @@ static int32_t g_pending_pitch_x10 = 0;
 static uint8_t g_pending_position_valid = 0;
 static uint32_t g_last_position_send_ms = 0;
 
+typedef enum {
+    F32C_EDGE_STATE_NORMAL = 0,
+    F32C_EDGE_STATE_WARN,
+    F32C_EDGE_STATE_PANIC,
+    F32C_EDGE_STATE_SUSPECT
+} F32C_EdgeState;
+
+/* Last reliable vision result. It is used only for edge-area guard.
+ * When MaixCAM2 reports found=1 but the center suddenly jumps near the image
+ * edge, the gimbal keeps a short safe yaw correction instead of following a
+ * possibly wrong corner point immediately.
+ */
+static uint8_t g_has_last_good_vision = 0;
+static int16_t g_last_good_raw_dx = 0;
+static int16_t g_last_good_raw_dy = 0;
+static int16_t g_last_good_err_x = 0;
+static int16_t g_last_good_err_y = 0;
+static uint32_t g_last_good_ms = 0;
+
 static uint8_t motor1_Enable_data[5] = {0x7A, 0x01, 0x06, 0x7D, 0x7B};
 static uint8_t motor2_Enable_data[5] = {0x7A, 0x02, 0x06, 0x7E, 0x7B};
 static uint8_t motor1_Mode_data[7] = {0x7A, 0x01, 0x00, 0x00, 0x00, 0x7B, 0x7B};
@@ -58,19 +77,55 @@ static int32_t f32c_abs_i32(int32_t v)
     return (v < 0) ? -v : v;
 }
 
-static int32_t f32c_get_yaw_step_limit_x10(int16_t dx)
+static int32_t f32c_min_i32(int32_t a, int32_t b)
 {
-    int32_t adx = f32c_abs_i32((int32_t)dx);
+    return (a < b) ? a : b;
+}
+
+static F32C_EdgeState f32c_get_edge_state(int16_t raw_dx)
+{
+    int32_t adx = f32c_abs_i32((int32_t)raw_dx);
+
+    if(adx >= F32C_EDGE_PANIC_X_PX){
+        return F32C_EDGE_STATE_PANIC;
+    }
+
+    if(adx >= F32C_EDGE_WARN_X_PX){
+        return F32C_EDGE_STATE_WARN;
+    }
+
+    return F32C_EDGE_STATE_NORMAL;
+}
+
+static int32_t f32c_get_yaw_step_limit_x10(int16_t err_x, int16_t raw_dx, F32C_EdgeState edge_state)
+{
+    int32_t adx = f32c_abs_i32((int32_t)err_x);
+    int32_t limit_x10;
 
     if(adx >= F32C_YAW_FAR_ERR_PX){
-        return F32C_YAW_STEP_LIMIT_FAR_X10;
+        limit_x10 = F32C_YAW_STEP_LIMIT_FAR_X10;
+    } else if(adx >= F32C_YAW_MID_ERR_PX){
+        limit_x10 = F32C_YAW_STEP_LIMIT_MID_X10;
+    } else {
+        limit_x10 = F32C_YAW_STEP_LIMIT_NEAR_X10;
     }
 
-    if(adx >= F32C_YAW_MID_ERR_PX){
-        return F32C_YAW_STEP_LIMIT_MID_X10;
+    /* raw_dx tells whether the target is close to the left/right frame edge.
+     * If it is, allow a larger yaw step only in the edge area. This keeps the
+     * center area stable while still rescuing the target before it exits.
+     */
+    (void)raw_dx;
+    if(edge_state == F32C_EDGE_STATE_PANIC){
+        if(limit_x10 < F32C_YAW_STEP_LIMIT_PANIC_X10){
+            limit_x10 = F32C_YAW_STEP_LIMIT_PANIC_X10;
+        }
+    } else if(edge_state == F32C_EDGE_STATE_WARN){
+        if(limit_x10 < F32C_YAW_STEP_LIMIT_EDGE_X10){
+            limit_x10 = F32C_YAW_STEP_LIMIT_EDGE_X10;
+        }
     }
 
-    return F32C_YAW_STEP_LIMIT_NEAR_X10;
+    return limit_x10;
 }
 
 static int16_t apply_deadzone(int16_t v, int16_t zone)
@@ -79,6 +134,106 @@ static int16_t apply_deadzone(int16_t v, int16_t zone)
         return 0;
     }
     return v;
+}
+
+static void f32c_calc_laser_error(int16_t raw_dx, int16_t raw_dy, int16_t *err_x, int16_t *err_y)
+{
+#if F32C_USE_B_VISION_BIAS
+    *err_x = (int16_t)(raw_dx - F32C_B_DX_BIAS);
+    *err_y = (int16_t)(raw_dy - F32C_B_DY_BIAS);
+#else
+    *err_x = raw_dx;
+    *err_y = raw_dy;
+#endif
+}
+
+static uint8_t f32c_is_suspicious_edge_frame(int16_t raw_dx, int16_t raw_dy, F32C_EdgeState edge_state)
+{
+    int32_t jump_x;
+    int32_t jump_y;
+
+    if(edge_state == F32C_EDGE_STATE_NORMAL){
+        return 0;
+    }
+
+    if(g_has_last_good_vision == 0){
+        return 0;
+    }
+
+    jump_x = f32c_abs_i32((int32_t)raw_dx - (int32_t)g_last_good_raw_dx);
+    jump_y = f32c_abs_i32((int32_t)raw_dy - (int32_t)g_last_good_raw_dy);
+
+    if(jump_x > F32C_EDGE_JUMP_REJECT_X_PX){
+        return 1;
+    }
+
+    if(jump_y > F32C_EDGE_JUMP_REJECT_Y_PX){
+        return 1;
+    }
+
+    /* If the last reliable point was already near one edge, a sudden jump to
+     * the opposite side is very likely a wrong corner/fragment detection.
+     */
+    if((g_last_good_raw_dx <= -F32C_EDGE_WARN_X_PX) && (raw_dx > 0)){
+        return 1;
+    }
+
+    if((g_last_good_raw_dx >= F32C_EDGE_WARN_X_PX) && (raw_dx < 0)){
+        return 1;
+    }
+
+    return 0;
+}
+
+static void f32c_update_last_good_vision(int16_t raw_dx,
+                                         int16_t raw_dy,
+                                         int16_t err_x,
+                                         int16_t err_y,
+                                         uint32_t now)
+{
+    g_last_good_raw_dx = raw_dx;
+    g_last_good_raw_dy = raw_dy;
+    g_last_good_err_x = err_x;
+    g_last_good_err_y = err_y;
+    g_last_good_ms = now;
+    g_has_last_good_vision = 1;
+}
+
+static uint8_t f32c_get_safe_vision_error(int16_t raw_dx,
+                                          int16_t raw_dy,
+                                          uint32_t now,
+                                          int16_t *safe_err_x,
+                                          int16_t *safe_err_y,
+                                          F32C_EdgeState *edge_state,
+                                          uint8_t *used_edge_hold)
+{
+    int16_t err_x;
+    int16_t err_y;
+    uint8_t suspicious;
+
+    f32c_calc_laser_error(raw_dx, raw_dy, &err_x, &err_y);
+    *edge_state = f32c_get_edge_state(raw_dx);
+    *used_edge_hold = 0;
+
+    suspicious = f32c_is_suspicious_edge_frame(raw_dx, raw_dy, *edge_state);
+    if(suspicious == 0){
+        f32c_update_last_good_vision(raw_dx, raw_dy, err_x, err_y, now);
+        *safe_err_x = err_x;
+        *safe_err_y = err_y;
+        return 1;
+    }
+
+    *edge_state = F32C_EDGE_STATE_SUSPECT;
+
+    if((g_has_last_good_vision != 0) && ((now - g_last_good_ms) <= F32C_EDGE_HOLD_MS)){
+        *safe_err_x = g_last_good_err_x;
+        /* Do not chase vertical noise during a suspicious edge frame. */
+        *safe_err_y = 0;
+        *used_edge_hold = 1;
+        return 1;
+    }
+
+    return 0;
 }
 
 static void f32c_uart3_init(void)
@@ -400,10 +555,15 @@ void F32C_Gimbal_Task(void)
     static uint32_t last_debug_ms = 0;
     uint32_t now = HAL_GetTick();
     uint8_t found;
+    int16_t raw_dx;
+    int16_t raw_dy;
     int16_t dx;
     int16_t dy;
     int32_t yaw_step;
     int32_t pitch_step;
+    F32C_EdgeState edge_state = F32C_EDGE_STATE_NORMAL;
+    uint8_t used_edge_hold = 0;
+    uint8_t safe_vision_ok = 0;
 
     if((now - last_control_ms) < F32C_CONTROL_PERIOD_MS){
         return;
@@ -416,23 +576,26 @@ void F32C_Gimbal_Task(void)
     }
 
     found = ((g_vision_target.flags & VISION_FLAG_FOUND) != 0) ? 1 : 0;
+    raw_dx = g_vision_target.dx;
+    raw_dy = g_vision_target.dy;
 
 #if F32C_DEBUG_PRINT_ENABLE
     if((now - last_debug_ms) >= F32C_DEBUG_PRINT_PERIOD_MS){
         last_debug_ms = now;
-        printf("GIMBAL vc=%lu found=%u conf=%u raw_dx=%d raw_dy=%d bias_dx=%d bias_dy=%d tgt1=%ld tgt2=%ld spd1=%d spd2=%d age=%lu\r\n",
+        printf("GIMBAL vc=%lu found=%u conf=%u raw_dx=%d raw_dy=%d bias_dx=%d bias_dy=%d tgt1=%ld tgt2=%ld spd1=%d spd2=%d age=%lu edge=%d\r\n",
                (unsigned long)g_vision_target.valid_count,
                (unsigned int)found,
                (unsigned int)g_vision_target.confidence,
-               (int)g_vision_target.dx,
-               (int)g_vision_target.dy,
+               (int)raw_dx,
+               (int)raw_dy,
                (int)F32C_B_DX_BIAS,
                (int)F32C_B_DY_BIAS,
                (long)Motor1_T_Position,
                (long)Motor2_T_Position,
                (int)Motor1_T_Speed,
                (int)Motor2_T_Speed,
-               (unsigned long)(now - last_seen_ms));
+               (unsigned long)(now - last_seen_ms),
+               (int)f32c_get_edge_state(raw_dx));
     }
 #endif
 
@@ -441,40 +604,50 @@ void F32C_Gimbal_Task(void)
        (found != 0) &&
        (g_vision_target.confidence >= F32C_MIN_CONFIDENCE)){
 
-#if F32C_USE_B_VISION_BIAS
-        dx = apply_deadzone((int16_t)(g_vision_target.dx - F32C_B_DX_BIAS),
-                            F32C_DEADZONE_X_PX);
-        dy = apply_deadzone((int16_t)(g_vision_target.dy - F32C_B_DY_BIAS),
-                            F32C_DEADZONE_Y_PX);
-#else
-        dx = apply_deadzone(g_vision_target.dx, F32C_DEADZONE_X_PX);
-        dy = apply_deadzone(g_vision_target.dy, F32C_DEADZONE_Y_PX);
-#endif
+        safe_vision_ok = f32c_get_safe_vision_error(raw_dx,
+                                                    raw_dy,
+                                                    now,
+                                                    &dx,
+                                                    &dy,
+                                                    &edge_state,
+                                                    &used_edge_hold);
+
+        if(safe_vision_ok != 0){
+            dx = apply_deadzone(dx, F32C_DEADZONE_X_PX);
+            dy = apply_deadzone(dy, F32C_DEADZONE_Y_PX);
 
 #if F32C_TRACK_USE_SPEED_MODE
-        yaw_step = ((int32_t)dx * F32C_YAW_SPEED_K_NUM) / F32C_YAW_SPEED_K_DEN;
-        pitch_step = ((int32_t)dy * F32C_PITCH_SPEED_K_NUM) / F32C_PITCH_SPEED_K_DEN;
+            yaw_step = ((int32_t)dx * F32C_YAW_SPEED_K_NUM) / F32C_YAW_SPEED_K_DEN;
+            pitch_step = ((int32_t)dy * F32C_PITCH_SPEED_K_NUM) / F32C_PITCH_SPEED_K_DEN;
 
-        yaw_step *= F32C_YAW_DIR;
-        pitch_step *= F32C_PITCH_DIR;
+            yaw_step *= F32C_YAW_DIR;
+            pitch_step *= F32C_PITCH_DIR;
 
-        F32C_Gimbal_SetSpeedTarget((int16_t)yaw_step, (int16_t)pitch_step);
+            if(used_edge_hold != 0){
+                yaw_step = clamp_i32(yaw_step, -F32C_EDGE_HOLD_STEP_X10, F32C_EDGE_HOLD_STEP_X10);
+            }
+
+            F32C_Gimbal_SetSpeedTarget((int16_t)yaw_step, (int16_t)pitch_step);
 #else
-        yaw_step = ((int32_t)dx * F32C_YAW_K_NUM) / F32C_YAW_K_DEN;
-        pitch_step = ((int32_t)dy * F32C_PITCH_K_NUM) / F32C_PITCH_K_DEN;
+            yaw_step = ((int32_t)dx * F32C_YAW_K_NUM) / F32C_YAW_K_DEN;
+            pitch_step = ((int32_t)dy * F32C_PITCH_K_NUM) / F32C_PITCH_K_DEN;
 
-        yaw_step *= F32C_YAW_DIR;
-        pitch_step *= F32C_PITCH_DIR;
+            yaw_step *= F32C_YAW_DIR;
+            pitch_step *= F32C_PITCH_DIR;
 
-        {
-            int32_t yaw_limit_x10 = f32c_get_yaw_step_limit_x10(dx);
-            yaw_step = clamp_i32(yaw_step, -yaw_limit_x10, yaw_limit_x10);
-        }
-        pitch_step = clamp_i32(pitch_step, -F32C_PITCH_STEP_LIMIT_X10, F32C_PITCH_STEP_LIMIT_X10);
+            {
+                int32_t yaw_limit_x10 = f32c_get_yaw_step_limit_x10(dx, raw_dx, edge_state);
+                if(used_edge_hold != 0){
+                    yaw_limit_x10 = f32c_min_i32(yaw_limit_x10, F32C_EDGE_HOLD_STEP_X10);
+                }
+                yaw_step = clamp_i32(yaw_step, -yaw_limit_x10, yaw_limit_x10);
+            }
+            pitch_step = clamp_i32(pitch_step, -F32C_PITCH_STEP_LIMIT_X10, F32C_PITCH_STEP_LIMIT_X10);
 
-        F32C_Gimbal_QueuePositionTarget(Motor1_T_Position + yaw_step,
-                                        Motor2_T_Position + pitch_step);
+            F32C_Gimbal_QueuePositionTarget(Motor1_T_Position + yaw_step,
+                                            Motor2_T_Position + pitch_step);
 #endif
+        }
     } else {
 #if F32C_TRACK_USE_SPEED_MODE
         F32C_Gimbal_SetSpeedTarget(0, 0);

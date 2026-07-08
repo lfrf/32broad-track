@@ -65,6 +65,25 @@
 #define F32C_YAW_MID_ERR_PX            16
 #define F32C_YAW_FAR_ERR_PX            32
 
+/* Edge-aware tracking guard.
+ * raw_dx is used for edge-state judgment because it represents the real target
+ * position in the camera frame. Bias-corrected err_x is still used as the
+ * laser aiming error.
+ */
+#define F32C_EDGE_WARN_X_PX             40
+#define F32C_EDGE_PANIC_X_PX            58
+#define F32C_EDGE_LOST_X_PX             70
+#define F32C_YAW_STEP_LIMIT_EDGE_X10    24
+#define F32C_YAW_STEP_LIMIT_PANIC_X10   30
+
+/* Reject suspicious center jumps when the target is already near the image edge.
+ * This prevents the gimbal from blindly following a wrongly detected corner.
+ */
+#define F32C_EDGE_JUMP_REJECT_X_PX      25
+#define F32C_EDGE_JUMP_REJECT_Y_PX      20
+#define F32C_EDGE_HOLD_MS               120
+#define F32C_EDGE_HOLD_STEP_X10         10
+
 #define F32C_PITCH_STEP_LIMIT_X10   3
 
 #define F32C_YAW_SPEED_K_NUM        1
