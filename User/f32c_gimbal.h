@@ -107,22 +107,41 @@
  *   pixel error from MaixCAM2 vision packet.
  */
 
-/* Startup preset:
- * Absolute joint targets sent once during F32C_Gimbal_Init().
- * This only moves the gimbal to a fixed camera-view pose after power-on.
- * It does not delay vision tracking, does not judge target readiness, and does
- * not interact with the main car controller.
+/* ===================== Boot relative init =====================
+ *
+ * New startup method:
+ *   1. Before power-on, manually hold/move the camera to a safe rough pose.
+ *   2. After F32C is enabled and switched to position mode, the firmware treats
+ *      the current physical pose as the software zero reference.
+ *   3. It sends only a small relative yaw/pitch offset below.
+ *   4. Normal vision tracking then naturally continues from that relative target.
+ *
+ * This avoids relying on F32C's absolute zero and avoids commanding a large
+ * pitch lift such as 160 degrees during boot.
  */
-#define F32C_INIT_PRESET_ENABLE     1
-#define F32C_INIT_YAW_X10           (-200)
-#define F32C_INIT_PITCH_X10         (1600)
+#define F32C_BOOT_RELATIVE_INIT_ENABLE      1
 
-/* Safety clamps for the startup preset itself.
- * They prevent accidental large boot moves if INIT_YAW/PITCH is edited wrongly.
- * The final command is still also clamped by F32C_YAW/PITCH_MIN/MAX_X10.
+/* Relative boot offsets from the manually held power-on pose.
+ * Unit: 0.1 degree.
+ * Example: -200 means -20.0 degrees, 50 means +5.0 degrees.
+ * Tune these two values on-site.
  */
-#define F32C_INIT_YAW_ABS_LIMIT_X10     300
-#define F32C_INIT_PITCH_ABS_LIMIT_X10   300
+#define F32C_BOOT_YAW_DELTA_X10             (-250)
+#define F32C_BOOT_PITCH_DELTA_X10           (-200)
+
+/* Safety clamps for the boot relative offset itself.
+ * These are delta limits, not absolute joint limits.
+ * They prevent accidental large relative boot moves if DELTA values are edited
+ * incorrectly. Final targets are still also clamped by F32C_YAW/PITCH_MIN/MAX.
+ */
+#define F32C_BOOT_YAW_DELTA_LIMIT_X10       300
+#define F32C_BOOT_PITCH_DELTA_LIMIT_X10     300
+
+/* Optional lock command. Keep this 0 unless you have verified that sending
+ * position 0,0 after power-on holds the current physical pose instead of
+ * returning to the controller's absolute zero.
+ */
+#define F32C_BOOT_SEND_ZERO_HOLD_ENABLE     0
 
 /* B-point preset:
  * Optional. This is the yaw/pitch angle when laser hits the target center at B.
@@ -150,7 +169,7 @@ void F32C_Gimbal_Init(void);
 void F32C_Gimbal_Task(void);
 void F32C_Gimbal_SetTarget(int32_t motor1_pos_x10, int32_t motor2_pos_x10);
 void F32C_Gimbal_SendPositionBoth(void);
-void F32C_Gimbal_GotoInitPreset(void);
+void F32C_Gimbal_GotoBootRelativeInit(void);
 void F32C_Gimbal_GotoBPreset(void);
 
 #endif
