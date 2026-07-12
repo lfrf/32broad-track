@@ -13,10 +13,15 @@
 #define F32C_MOTOR2_ID              2
 
 #define F32C_MODE_SPEED             0
-/* 1: multi-turn position with T trajectory planning. */
+/* 1: multi-turn position with T trajectory planning.
+ * 3: multi-turn position direct mode. The F32C manual recommends direct mode
+ *    when target position is changed at high frequency.
+ */
 #define F32C_MODE_POSITION_T        1
+#define F32C_MODE_POSITION_DIRECT   3
+#define F32C_TRACK_POSITION_MODE    F32C_MODE_POSITION_DIRECT
 
-#define F32C_DEFAULT_SPEED          250
+#define F32C_DEFAULT_SPEED          180
 #define F32C_BOOT_SELF_TEST_ENABLE  0
 #define F32C_BOOT_SPEED_TEST_ENABLE 0
 #define F32C_MANUAL_POSITION_TEST_ENABLE 0
@@ -30,15 +35,15 @@
  * control still runs at 20ms, but F32C position frames are sent at <= 50ms,
  * with a short gap between motor1 and motor2 frames.
  */
-#define F32C_POSITION_SEND_PERIOD_MS 30
+#define F32C_POSITION_SEND_PERIOD_MS 20
 #define F32C_INTER_MOTOR_DELAY_MS    5
 
 /* Legacy common deadzone kept for compatibility/reference, but the task now uses
  * separated X/Y deadzones below.
  */
 #define F32C_DEADZONE_PX            3
-#define F32C_DEADZONE_X_PX          10
-#define F32C_DEADZONE_Y_PX          10
+#define F32C_DEADZONE_X_PX          8
+#define F32C_DEADZONE_Y_PX          8
 #define F32C_MIN_CONFIDENCE         40
 
 /* Direction depends on camera/gimbal installation.
@@ -49,19 +54,28 @@
 
 /* Position unit is 0.1 degree. */
 #define F32C_YAW_K_NUM              1
-#define F32C_YAW_K_DEN              1
+#define F32C_YAW_K_DEN              2
 
 /* Pitch is deliberately slower/stabler than yaw to reduce vertical oscillation. */
 #define F32C_PITCH_K_NUM            1
-#define F32C_PITCH_K_DEN            3
+#define F32C_PITCH_K_DEN            4
+/* Error-rate feedforward. It reacts to target motion before pure position error
+ * fully builds up, improving follow response without changing final setpoint.
+ */
+#define F32C_YAW_D_NUM              1
+#define F32C_YAW_D_DEN              2
+#define F32C_PITCH_D_NUM            1
+#define F32C_PITCH_D_DEN            4
+#define F32C_YAW_D_STEP_LIMIT_X10   8
+#define F32C_PITCH_D_STEP_LIMIT_X10 4
 
 #define F32C_YAW_STEP_LIMIT_X10     8
 /* Segmented yaw step limits for faster large-error recovery without large
  * horizontal oscillation near the center.
  */
-#define F32C_YAW_STEP_LIMIT_NEAR_X10   4
+#define F32C_YAW_STEP_LIMIT_NEAR_X10   3
 #define F32C_YAW_STEP_LIMIT_MID_X10    9
-#define F32C_YAW_STEP_LIMIT_FAR_X10    15
+#define F32C_YAW_STEP_LIMIT_FAR_X10    18
 #define F32C_YAW_MID_ERR_PX            16
 #define F32C_YAW_FAR_ERR_PX            32
 
@@ -90,11 +104,16 @@
  */
 #define F32C_RECENTER_GUARD_ENABLE       1
 #define F32C_RECENTER_GUARD_MS           350
-#define F32C_RECENTER_GUARD_YAW_LIMIT_X10 8
+#define F32C_RECENTER_GUARD_YAW_LIMIT_X10 10
 #define F32C_RECENTER_GUARD_APPLY_AB     1
 #define F32C_RECENTER_GUARD_APPLY_CD     1
 
-#define F32C_PITCH_STEP_LIMIT_X10   5
+#define F32C_PITCH_STEP_LIMIT_X10   7
+/* If the visual error changes sign, the laser has crossed the target center.
+ * Shrink the next position increment to avoid repeatedly overshooting.
+ */
+#define F32C_ZERO_CROSS_BRAKE_ENABLE 1
+#define F32C_ZERO_CROSS_BRAKE_DIV    3
 
 #define F32C_YAW_SPEED_K_NUM        1
 #define F32C_YAW_SPEED_K_DEN        2

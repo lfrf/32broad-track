@@ -595,12 +595,10 @@ static void F32C_Gimbal_QueuePositionTarget(int32_t motor1_pos_x10, int32_t moto
     g_pending_pitch_x10 = clamp_i32(motor2_pos_x10, F32C_PITCH_MIN_X10, F32C_PITCH_MAX_X10);
     g_pending_position_valid = 1;
 
-    /* Keep the public target variables as the latest desired target, even before
-     * the next physical F32C send. This makes subsequent 20ms control iterations
-     * accumulate from the newest target instead of stale last-sent values.
+    /* Do not update Motor*_T_Position until the frame is actually sent.
+     * Otherwise the 20ms control loop can accumulate multiple unsent increments
+     * and make the software target run ahead of the physical gimbal.
      */
-    Motor1_T_Position = g_pending_yaw_x10;
-    Motor2_T_Position = g_pending_pitch_x10;
 }
 
 static void F32C_Gimbal_SendPendingIfDue(uint32_t now)
@@ -715,9 +713,9 @@ void F32C_Gimbal_Init(void)
     f32c_send_enable(F32C_MOTOR2_ID);
     HAL_Delay(F32C_CMD_DELAY_MS);
 
-    f32c_send_mode(F32C_MOTOR1_ID, F32C_MODE_POSITION_T);
+    f32c_send_mode(F32C_MOTOR1_ID, F32C_TRACK_POSITION_MODE);
     HAL_Delay(F32C_CMD_DELAY_MS);
-    f32c_send_mode(F32C_MOTOR2_ID, F32C_MODE_POSITION_T);
+    f32c_send_mode(F32C_MOTOR2_ID, F32C_TRACK_POSITION_MODE);
     HAL_Delay(F32C_CMD_DELAY_MS);
 
 #if F32C_BOOT_SPEED_TEST_ENABLE
@@ -747,10 +745,10 @@ void F32C_Gimbal_Init(void)
     F32C_Gimbal_SetSpeedTarget(0, 0);
     F32C_Gimbal_SendSpeedBoth();
 #else
-    printf("F32C switch to position mode\r\n");
-    f32c_send_mode(F32C_MOTOR1_ID, F32C_MODE_POSITION_T);
+    printf("F32C switch to position mode=%u\r\n", (unsigned int)F32C_TRACK_POSITION_MODE);
+    f32c_send_mode(F32C_MOTOR1_ID, F32C_TRACK_POSITION_MODE);
     HAL_Delay(F32C_CMD_DELAY_MS);
-    f32c_send_mode(F32C_MOTOR2_ID, F32C_MODE_POSITION_T);
+    f32c_send_mode(F32C_MOTOR2_ID, F32C_TRACK_POSITION_MODE);
     HAL_Delay(F32C_CMD_DELAY_MS);
 
     f32c_send_speed(F32C_MOTOR1_ID, F32C_DEFAULT_SPEED);
@@ -808,6 +806,9 @@ void F32C_Gimbal_Task(void)
     static uint32_t last_seen_count = 0;
     static uint32_t last_seen_ms = 0;
     static uint32_t last_debug_ms = 0;
+    static int16_t last_control_dx = 0;
+    static int16_t last_control_dy = 0;
+    static uint8_t last_control_valid = 0;
     uint32_t now = HAL_GetTick();
     uint8_t found;
     int16_t raw_dx;
@@ -894,8 +895,26 @@ void F32C_Gimbal_Task(void)
             yaw_step = ((int32_t)dx * F32C_YAW_K_NUM) / F32C_YAW_K_DEN;
             pitch_step = ((int32_t)dy * F32C_PITCH_K_NUM) / F32C_PITCH_K_DEN;
 
+            if(last_control_valid != 0){
+                int32_t yaw_d_step = ((int32_t)(dx - last_control_dx) * F32C_YAW_D_NUM) / F32C_YAW_D_DEN;
+                int32_t pitch_d_step = ((int32_t)(dy - last_control_dy) * F32C_PITCH_D_NUM) / F32C_PITCH_D_DEN;
+                yaw_step += clamp_i32(yaw_d_step, -F32C_YAW_D_STEP_LIMIT_X10, F32C_YAW_D_STEP_LIMIT_X10);
+                pitch_step += clamp_i32(pitch_d_step, -F32C_PITCH_D_STEP_LIMIT_X10, F32C_PITCH_D_STEP_LIMIT_X10);
+            }
+
             yaw_step *= F32C_YAW_DIR;
             pitch_step *= F32C_PITCH_DIR;
+
+#if F32C_ZERO_CROSS_BRAKE_ENABLE
+            if(((last_control_dx > 0) && (dx < 0)) ||
+               ((last_control_dx < 0) && (dx > 0))){
+                yaw_step /= F32C_ZERO_CROSS_BRAKE_DIV;
+            }
+            if(((last_control_dy > 0) && (dy < 0)) ||
+               ((last_control_dy < 0) && (dy > 0))){
+                pitch_step /= F32C_ZERO_CROSS_BRAKE_DIV;
+            }
+#endif
 
             {
                 int32_t yaw_limit_x10 = f32c_get_yaw_step_limit_x10(dx, raw_dx, edge_state);
@@ -911,9 +930,15 @@ void F32C_Gimbal_Task(void)
 
             F32C_Gimbal_QueuePositionTarget(Motor1_T_Position + yaw_step,
                                             Motor2_T_Position + pitch_step);
+            last_control_dx = dx;
+            last_control_dy = dy;
+            last_control_valid = 1;
 #endif
         }
     } else {
+        last_control_dx = 0;
+        last_control_dy = 0;
+        last_control_valid = 0;
 #if F32C_TRACK_USE_SPEED_MODE
         F32C_Gimbal_SetSpeedTarget(0, 0);
 #endif
