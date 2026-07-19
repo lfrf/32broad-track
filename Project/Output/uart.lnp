@@ -7,7 +7,7 @@
 ".\output\bsp_led.o"
 ".\output\ringbuffer.o"
 ".\output\serial_protocol.o"
-".\output\startup_stm32f100xb.o"
+".\output\startup_stm32f103xb.o"
 ".\output\system_stm32f1xx.o"
 ".\output\stm32f1xx_hal.o"
 ".\output\stm32f1xx_hal_adc.o"

@@ -87,6 +87,19 @@ static int32_t f32c_min_i32(int32_t a, int32_t b)
     return (a < b) ? a : b;
 }
 
+static int32_t f32c_slew_i32(int32_t current, int32_t target, int32_t max_delta)
+{
+    int32_t delta = target - current;
+
+    if(delta > max_delta){
+        return current + max_delta;
+    }
+    if(delta < -max_delta){
+        return current - max_delta;
+    }
+    return target;
+}
+
 void F32C_Gimbal_SetTrackZone(uint8_t zone)
 {
     zone &= 0x03;
@@ -270,6 +283,10 @@ static uint8_t f32c_is_recenter_guard_active(uint32_t now)
 
 static F32C_EdgeState f32c_get_edge_state(int16_t raw_dx)
 {
+#if !F32C_VISION_EDGE_GUARD_ENABLE
+    (void)raw_dx;
+    return F32C_EDGE_STATE_NORMAL;
+#else
     int32_t adx = f32c_abs_i32((int32_t)raw_dx);
 
     if(adx >= F32C_EDGE_PANIC_X_PX){
@@ -281,8 +298,8 @@ static F32C_EdgeState f32c_get_edge_state(int16_t raw_dx)
     }
 
     return F32C_EDGE_STATE_NORMAL;
+#endif
 }
-
 static int32_t f32c_get_yaw_step_limit_x10(int16_t err_x, int16_t raw_dx, F32C_EdgeState edge_state)
 {
     int32_t adx = f32c_abs_i32((int32_t)err_x);
@@ -310,12 +327,27 @@ static int32_t f32c_get_yaw_step_limit_x10(int16_t err_x, int16_t raw_dx, F32C_E
     return limit_x10;
 }
 
-static int16_t apply_deadzone(int16_t v, int16_t zone)
+static int16_t apply_deadzone_hysteresis(int16_t value,
+                                         int16_t stop_zone,
+                                         int16_t start_zone,
+                                         uint8_t *active)
 {
-    if((v > -zone) && (v < zone)){
+    int32_t magnitude = (value < 0) ? -(int32_t)value : (int32_t)value;
+
+    if(*active != 0){
+        if(magnitude <= stop_zone){
+            *active = 0;
+            return 0;
+        }
+        return value;
+    }
+
+    if(magnitude < start_zone){
         return 0;
     }
-    return v;
+
+    *active = 1;
+    return value;
 }
 
 static void f32c_calc_laser_error(uint32_t now,
@@ -339,6 +371,12 @@ static void f32c_calc_laser_error(uint32_t now,
 
 static uint8_t f32c_is_suspicious_edge_frame(int16_t raw_dx, int16_t raw_dy, F32C_EdgeState edge_state)
 {
+#if !F32C_VISION_EDGE_GUARD_ENABLE
+    (void)raw_dx;
+    (void)raw_dy;
+    (void)edge_state;
+    return 0;
+#else
     int32_t jump_x;
     int32_t jump_y;
 
@@ -370,8 +408,8 @@ static uint8_t f32c_is_suspicious_edge_frame(int16_t raw_dx, int16_t raw_dy, F32
     }
 
     return 0;
+#endif
 }
-
 static void f32c_update_last_good_vision(int16_t raw_dx,
                                          int16_t raw_dy,
                                          int16_t err_x,
@@ -686,12 +724,14 @@ void F32C_Gimbal_Init(void)
     g_track_zone_start_ms = HAL_GetTick();
 
     printf("F32C init: USART3 PB10=TX PB11=RX baud=115200\r\n");
-    printf("F32C cfg: vision=%d speed_mode=%d manual_pos_test=%d boot_relative_init=%d zone_gpio=%d\r\n",
+    printf("F32C cfg: vision=%d speed_mode=%d manual_pos_test=%d boot_relative_init=%d zone_gpio=%d err_ex10=%d edge_guard=%d\r\n",
            F32C_VISION_ENABLE,
            F32C_TRACK_USE_SPEED_MODE,
            F32C_MANUAL_POSITION_TEST_ENABLE,
            F32C_BOOT_RELATIVE_INIT_ENABLE,
-           F32C_TRACK_ZONE_GPIO_ENABLE);
+           F32C_TRACK_ZONE_GPIO_ENABLE,
+           F32C_VISION_ERROR_UNIT_EX10,
+           F32C_VISION_EDGE_GUARD_ENABLE);
     printf("F32C boot relative init: delta=(%ld,%ld) delta_limit=(%ld,%ld) zero_hold=%d B=(%ld,%ld) B_bias=(%d,%d) zone=%u\r\n",
            (long)F32C_BOOT_YAW_DELTA_X10,
            (long)F32C_BOOT_PITCH_DELTA_X10,
@@ -809,6 +849,12 @@ void F32C_Gimbal_Task(void)
     static int16_t last_control_dx = 0;
     static int16_t last_control_dy = 0;
     static uint8_t last_control_valid = 0;
+    static int32_t yaw_vel_x10s = 0;
+    static int32_t pitch_vel_x10s = 0;
+    static int32_t yaw_pos_remainder = 0;
+    static int32_t pitch_pos_remainder = 0;
+    static uint8_t yaw_deadzone_active = 0;
+    static uint8_t pitch_deadzone_active = 0;
     uint32_t now = HAL_GetTick();
     uint8_t found;
     int16_t raw_dx;
@@ -820,6 +866,7 @@ void F32C_Gimbal_Task(void)
     F32C_EdgeState edge_state = F32C_EDGE_STATE_NORMAL;
     uint8_t used_edge_hold = 0;
     uint8_t safe_vision_ok = 0;
+    uint8_t new_vision_sample = 0;
 
     if((now - last_control_ms) < F32C_CONTROL_PERIOD_MS){
         return;
@@ -831,6 +878,7 @@ void F32C_Gimbal_Task(void)
     if(g_vision_target.valid_count != last_seen_count){
         last_seen_count = g_vision_target.valid_count;
         last_seen_ms = now;
+        new_vision_sample = 1;
     }
 
     found = ((g_vision_target.flags & VISION_FLAG_FOUND) != 0) ? 1 : 0;
@@ -863,6 +911,16 @@ void F32C_Gimbal_Task(void)
 #endif
 
 #if F32C_VISION_ENABLE
+    if((new_vision_sample == 0) &&
+       ((now - last_seen_ms) <= F32C_VISION_TIMEOUT_MS)){
+#if F32C_TRACK_USE_SPEED_MODE
+        F32C_Gimbal_SendSpeedBoth();
+#else
+        F32C_Gimbal_SendPendingIfDue(now);
+#endif
+        return;
+    }
+
     if(((now - last_seen_ms) <= F32C_VISION_TIMEOUT_MS) &&
        (found != 0) &&
        (g_vision_target.confidence >= F32C_MIN_CONFIDENCE)){
@@ -876,8 +934,14 @@ void F32C_Gimbal_Task(void)
                                                     &used_edge_hold);
 
         if(safe_vision_ok != 0){
-            dx = apply_deadzone(dx, F32C_DEADZONE_X_PX);
-            dy = apply_deadzone(dy, F32C_DEADZONE_Y_PX);
+            dx = apply_deadzone_hysteresis(dx,
+                                           F32C_DEADZONE_X_PX,
+                                           F32C_DEADZONE_RELEASE_X_PX,
+                                           &yaw_deadzone_active);
+            dy = apply_deadzone_hysteresis(dy,
+                                           F32C_DEADZONE_Y_PX,
+                                           F32C_DEADZONE_RELEASE_Y_PX,
+                                           &pitch_deadzone_active);
 
 #if F32C_TRACK_USE_SPEED_MODE
             yaw_step = ((int32_t)dx * F32C_YAW_SPEED_K_NUM) / F32C_YAW_SPEED_K_DEN;
@@ -892,53 +956,119 @@ void F32C_Gimbal_Task(void)
 
             F32C_Gimbal_SetSpeedTarget((int16_t)yaw_step, (int16_t)pitch_step);
 #else
-            yaw_step = ((int32_t)dx * F32C_YAW_K_NUM) / F32C_YAW_K_DEN;
-            pitch_step = ((int32_t)dy * F32C_PITCH_K_NUM) / F32C_PITCH_K_DEN;
-
-            if(last_control_valid != 0){
-                int32_t yaw_d_step = ((int32_t)(dx - last_control_dx) * F32C_YAW_D_NUM) / F32C_YAW_D_DEN;
-                int32_t pitch_d_step = ((int32_t)(dy - last_control_dy) * F32C_PITCH_D_NUM) / F32C_PITCH_D_DEN;
-                yaw_step += clamp_i32(yaw_d_step, -F32C_YAW_D_STEP_LIMIT_X10, F32C_YAW_D_STEP_LIMIT_X10);
-                pitch_step += clamp_i32(pitch_d_step, -F32C_PITCH_D_STEP_LIMIT_X10, F32C_PITCH_D_STEP_LIMIT_X10);
-            }
-
-            yaw_step *= F32C_YAW_DIR;
-            pitch_step *= F32C_PITCH_DIR;
-
-#if F32C_ZERO_CROSS_BRAKE_ENABLE
-            if(((last_control_dx > 0) && (dx < 0)) ||
-               ((last_control_dx < 0) && (dx > 0))){
-                yaw_step /= F32C_ZERO_CROSS_BRAKE_DIV;
-            }
-            if(((last_control_dy > 0) && (dy < 0)) ||
-               ((last_control_dy < 0) && (dy > 0))){
-                pitch_step /= F32C_ZERO_CROSS_BRAKE_DIV;
-            }
-#endif
-
             {
-                int32_t yaw_limit_x10 = f32c_get_yaw_step_limit_x10(dx, raw_dx, edge_state);
+                int32_t target_yaw_vel_x10s;
+                int32_t target_pitch_vel_x10s;
+                int32_t yaw_limit_x10s;
+                int32_t pitch_limit_x10s;
+                int32_t adx;
+
+                target_yaw_vel_x10s = ((int32_t)dx * F32C_YAW_POS_VEL_K_NUM) / F32C_YAW_POS_VEL_K_DEN;
+                target_pitch_vel_x10s = ((int32_t)dy * F32C_PITCH_POS_VEL_K_NUM) / F32C_PITCH_POS_VEL_K_DEN;
+
+                target_yaw_vel_x10s *= F32C_YAW_DIR;
+                target_pitch_vel_x10s *= F32C_PITCH_DIR;
+
+                adx = f32c_abs_i32((int32_t)dx);
+                if(adx >= F32C_YAW_FAR_ERR_PX){
+                    yaw_limit_x10s = F32C_YAW_POS_VEL_LIMIT_FAR_X10S;
+                } else if(adx >= F32C_YAW_MID_ERR_PX){
+                    yaw_limit_x10s = F32C_YAW_POS_VEL_LIMIT_MID_X10S;
+                } else {
+                    yaw_limit_x10s = F32C_YAW_POS_VEL_LIMIT_NEAR_X10S;
+                }
+
+                if(edge_state == F32C_EDGE_STATE_PANIC){
+                    if(yaw_limit_x10s < F32C_YAW_POS_VEL_LIMIT_PANIC_X10S){
+                        yaw_limit_x10s = F32C_YAW_POS_VEL_LIMIT_PANIC_X10S;
+                    }
+                } else if(edge_state == F32C_EDGE_STATE_WARN){
+                    if(yaw_limit_x10s < F32C_YAW_POS_VEL_LIMIT_EDGE_X10S){
+                        yaw_limit_x10s = F32C_YAW_POS_VEL_LIMIT_EDGE_X10S;
+                    }
+                }
+
                 if(used_edge_hold != 0){
-                    yaw_limit_x10 = f32c_min_i32(yaw_limit_x10, F32C_EDGE_HOLD_STEP_X10);
+                    yaw_limit_x10s = f32c_min_i32(yaw_limit_x10s, F32C_EDGE_HOLD_POS_VEL_X10S);
+                    target_pitch_vel_x10s = 0;
                 }
                 if(f32c_is_recenter_guard_active(now) != 0){
-                    yaw_limit_x10 = f32c_min_i32(yaw_limit_x10, F32C_RECENTER_GUARD_YAW_LIMIT_X10);
+                    yaw_limit_x10s = f32c_min_i32(yaw_limit_x10s, F32C_RECENTER_GUARD_POS_VEL_X10S);
                 }
-                yaw_step = clamp_i32(yaw_step, -yaw_limit_x10, yaw_limit_x10);
-            }
-            pitch_step = clamp_i32(pitch_step, -F32C_PITCH_STEP_LIMIT_X10, F32C_PITCH_STEP_LIMIT_X10);
 
-            F32C_Gimbal_QueuePositionTarget(Motor1_T_Position + yaw_step,
-                                            Motor2_T_Position + pitch_step);
+                pitch_limit_x10s = F32C_PITCH_POS_VEL_LIMIT_X10S;
+                target_yaw_vel_x10s = clamp_i32(target_yaw_vel_x10s, -yaw_limit_x10s, yaw_limit_x10s);
+                target_pitch_vel_x10s = clamp_i32(target_pitch_vel_x10s, -pitch_limit_x10s, pitch_limit_x10s);
+
+                if(dx == 0){
+                    yaw_vel_x10s = 0;
+                    yaw_pos_remainder = 0;
+                }
+                if(dy == 0){
+                    pitch_vel_x10s = 0;
+                    pitch_pos_remainder = 0;
+                }
+
+#if F32C_ZERO_CROSS_BRAKE_ENABLE
+                if(last_control_valid != 0){
+                    if(((last_control_dx > 0) && (dx < 0)) ||
+                       ((last_control_dx < 0) && (dx > 0))){
+                        yaw_vel_x10s = 0;
+                        yaw_pos_remainder = 0;
+                    }
+                    if(((last_control_dy > 0) && (dy < 0)) ||
+                       ((last_control_dy < 0) && (dy > 0))){
+                        pitch_vel_x10s = 0;
+                        pitch_pos_remainder = 0;
+                    }
+                }
+#endif
+
+                yaw_vel_x10s = f32c_slew_i32(yaw_vel_x10s, target_yaw_vel_x10s, F32C_YAW_POS_VEL_SLEW_X10S);
+                pitch_vel_x10s = f32c_slew_i32(pitch_vel_x10s, target_pitch_vel_x10s, F32C_PITCH_POS_VEL_SLEW_X10S);
+
+                yaw_pos_remainder += yaw_vel_x10s * (int32_t)F32C_CONTROL_PERIOD_MS;
+                pitch_pos_remainder += pitch_vel_x10s * (int32_t)F32C_CONTROL_PERIOD_MS;
+                yaw_step = yaw_pos_remainder / 1000;
+                pitch_step = pitch_pos_remainder / 1000;
+                yaw_pos_remainder %= 1000;
+                pitch_pos_remainder %= 1000;
+
+                if((yaw_step != 0) || (pitch_step != 0)){
+                    F32C_Gimbal_QueuePositionTarget(Motor1_T_Position + yaw_step,
+                                                    Motor2_T_Position + pitch_step);
+                }
+            }
             last_control_dx = dx;
             last_control_dy = dy;
             last_control_valid = 1;
+#endif
+        } else {
+            last_control_dx = 0;
+            last_control_dy = 0;
+            last_control_valid = 0;
+            yaw_vel_x10s = 0;
+            pitch_vel_x10s = 0;
+            yaw_pos_remainder = 0;
+            pitch_pos_remainder = 0;
+            yaw_deadzone_active = 0;
+            pitch_deadzone_active = 0;
+            g_pending_position_valid = 0;
+#if F32C_TRACK_USE_SPEED_MODE
+            F32C_Gimbal_SetSpeedTarget(0, 0);
 #endif
         }
     } else {
         last_control_dx = 0;
         last_control_dy = 0;
         last_control_valid = 0;
+        yaw_vel_x10s = 0;
+        pitch_vel_x10s = 0;
+        yaw_pos_remainder = 0;
+        pitch_pos_remainder = 0;
+        yaw_deadzone_active = 0;
+        pitch_deadzone_active = 0;
+        g_pending_position_valid = 0;
 #if F32C_TRACK_USE_SPEED_MODE
         F32C_Gimbal_SetSpeedTarget(0, 0);
 #endif

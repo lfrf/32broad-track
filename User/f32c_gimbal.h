@@ -9,6 +9,13 @@
 #define F32C_DEBUG_PRINT_PERIOD_MS  500
 #define F32C_TRACK_USE_SPEED_MODE   0
 
+/* MaixCAM2 binary_v1 still uses the dx/dy fields, but in this mode they carry
+ * laser-plane error in 0.1 mm: dx=ex10, dy=ey10. They are no longer
+ * image pixel errors.
+ */
+#define F32C_VISION_ERROR_UNIT_EX10 1
+#define F32C_VISION_EDGE_GUARD_ENABLE 0
+
 #define F32C_MOTOR1_ID              1
 #define F32C_MOTOR2_ID              2
 
@@ -38,12 +45,14 @@
 #define F32C_POSITION_SEND_PERIOD_MS 20
 #define F32C_INTER_MOTOR_DELAY_MS    5
 
-/* Legacy common deadzone kept for compatibility/reference, but the task now uses
- * separated X/Y deadzones below.
+/* Vision error deadzone. In F32C_VISION_ERROR_UNIT_EX10 mode these values
+ * are 0.1 mm, so 50 means 5.0 mm.
  */
 #define F32C_DEADZONE_PX            3
-#define F32C_DEADZONE_X_PX          8
-#define F32C_DEADZONE_Y_PX          8
+#define F32C_DEADZONE_X_PX          80
+#define F32C_DEADZONE_Y_PX          90
+#define F32C_DEADZONE_RELEASE_X_PX  120
+#define F32C_DEADZONE_RELEASE_Y_PX  140
 #define F32C_MIN_CONFIDENCE         40
 
 /* Direction depends on camera/gimbal installation.
@@ -76,8 +85,8 @@
 #define F32C_YAW_STEP_LIMIT_NEAR_X10   3
 #define F32C_YAW_STEP_LIMIT_MID_X10    9
 #define F32C_YAW_STEP_LIMIT_FAR_X10    18
-#define F32C_YAW_MID_ERR_PX            16
-#define F32C_YAW_FAR_ERR_PX            32
+#define F32C_YAW_MID_ERR_PX            200
+#define F32C_YAW_FAR_ERR_PX            500
 
 /* Edge-aware tracking guard.
  * raw_dx is used for edge-state judgment because it represents the real target
@@ -122,6 +131,26 @@
 #define F32C_YAW_SPEED_LIMIT_RPM    35
 #define F32C_PITCH_SPEED_LIMIT_RPM  25
 
+/* Position-mode velocity outer loop.
+ * The F32C stays in position mode for holding torque, while vision error first
+ * becomes a target angular velocity and is then integrated into position.
+ * Unit: x10 degree/s, i.e. 100 means 10.0 deg/s.
+ */
+#define F32C_YAW_POS_VEL_K_NUM      1
+#define F32C_YAW_POS_VEL_K_DEN      3
+#define F32C_PITCH_POS_VEL_K_NUM    1
+#define F32C_PITCH_POS_VEL_K_DEN    4
+#define F32C_YAW_POS_VEL_LIMIT_NEAR_X10S 15
+#define F32C_YAW_POS_VEL_LIMIT_MID_X10S  40
+#define F32C_YAW_POS_VEL_LIMIT_FAR_X10S  80
+#define F32C_YAW_POS_VEL_LIMIT_EDGE_X10S 1000
+#define F32C_YAW_POS_VEL_LIMIT_PANIC_X10S 1200
+#define F32C_PITCH_POS_VEL_LIMIT_X10S 25
+#define F32C_YAW_POS_VEL_SLEW_X10S  5
+#define F32C_PITCH_POS_VEL_SLEW_X10S 3
+#define F32C_EDGE_HOLD_POS_VEL_X10S 500
+#define F32C_RECENTER_GUARD_POS_VEL_X10S 500
+
 #define F32C_YAW_MIN_X10            (-3800)
 #define F32C_YAW_MAX_X10            (3800)
 #define F32C_PITCH_MIN_X10          (-2700)
@@ -132,8 +161,9 @@
  * Unit of *_YAW_X10 / *_PITCH_X10:
  *   0.1 degree. Example: 184 means 18.4 degrees.
  *
- * Unit of *_DX_BIAS / *_DY_BIAS:
- *   pixel error from MaixCAM2 vision packet.
+ * In F32C_VISION_ERROR_UNIT_EX10 mode, MaixCAM2 packet dx/dy are ex10/ey10:
+ *   laser error in 0.1 mm. Old *_DX_BIAS / *_DY_BIAS pixel biases must stay
+ *   disabled unless they are recalibrated in ex10/ey10 units.
  */
 
 /* ===================== Boot relative init =====================
@@ -185,7 +215,7 @@
  * If laser hits the center at B while the vision log shows raw_dx/raw_dy not zero,
  * put those raw values here.
  */
-#define F32C_USE_B_VISION_BIAS      1
+#define F32C_USE_B_VISION_BIAS      0
 #define F32C_B_DX_BIAS              (-2)
 #define F32C_B_DY_BIAS              (-6)
 
