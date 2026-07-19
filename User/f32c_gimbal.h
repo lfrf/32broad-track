@@ -7,7 +7,19 @@
 #define F32C_VISION_ENABLE          1
 #define F32C_DEBUG_PRINT_ENABLE     0
 #define F32C_DEBUG_PRINT_PERIOD_MS  500
-#define F32C_TRACK_USE_SPEED_MODE   0
+#define F32C_TRACK_MODE_POSITION_VELOCITY 0
+#define F32C_TRACK_MODE_EX10_SPEED_PD      1
+
+/* Change this one line to switch the vision outer-loop controller. */
+#define F32C_TRACK_CONTROL_MODE F32C_TRACK_MODE_EX10_SPEED_PD
+
+#if F32C_TRACK_CONTROL_MODE == F32C_TRACK_MODE_EX10_SPEED_PD
+#define F32C_TRACK_USE_SPEED_MODE 1
+#elif F32C_TRACK_CONTROL_MODE == F32C_TRACK_MODE_POSITION_VELOCITY
+#define F32C_TRACK_USE_SPEED_MODE 0
+#else
+#error Unsupported_F32C_TRACK_CONTROL_MODE
+#endif
 
 /* MaixCAM2 binary_v1 still uses the dx/dy fields, but in this mode they carry
  * laser-plane error in 0.1 mm: dx=ex10, dy=ey10. They are no longer
@@ -124,12 +136,31 @@
 #define F32C_ZERO_CROSS_BRAKE_ENABLE 1
 #define F32C_ZERO_CROSS_BRAKE_DIV    3
 
-#define F32C_YAW_SPEED_K_NUM        1
-#define F32C_YAW_SPEED_K_DEN        2
-#define F32C_PITCH_SPEED_K_NUM      1
-#define F32C_PITCH_SPEED_K_DEN      2
-#define F32C_YAW_SPEED_LIMIT_RPM    35
-#define F32C_PITCH_SPEED_LIMIT_RPM  25
+/* Direct ex10/ey10 speed-PD controller. Error unit is 0.1 mm. */
+#define F32C_SPEED_PD_DEADZONE_X_EX10       40
+#define F32C_SPEED_PD_DEADZONE_Y_EX10       55
+#define F32C_SPEED_PD_RELEASE_X_EX10        65
+#define F32C_SPEED_PD_RELEASE_Y_EX10        80
+#define F32C_SPEED_PD_FILTER_NEW_NUM         1
+#define F32C_SPEED_PD_FILTER_DEN             2
+#define F32C_YAW_SPEED_PD_KP_NUM             3
+#define F32C_YAW_SPEED_PD_KP_DEN           100
+#define F32C_PITCH_SPEED_PD_KP_NUM           2
+#define F32C_PITCH_SPEED_PD_KP_DEN         100
+#define F32C_YAW_SPEED_PD_KD_NUM             1
+#define F32C_YAW_SPEED_PD_KD_DEN           500
+#define F32C_PITCH_SPEED_PD_KD_NUM           1
+#define F32C_PITCH_SPEED_PD_KD_DEN         650
+#define F32C_YAW_SPEED_PD_D_LIMIT_RPM        6
+#define F32C_PITCH_SPEED_PD_D_LIMIT_RPM      4
+#define F32C_YAW_SPEED_PD_SLEW_RPM           4
+#define F32C_PITCH_SPEED_PD_SLEW_RPM         3
+#define F32C_YAW_SPEED_LIMIT_RPM             22
+#define F32C_PITCH_SPEED_LIMIT_RPM           14
+#define F32C_SPEED_PD_EDGE_HOLD_RPM           6
+#define F32C_SPEED_PD_SAMPLE_HOLD_MS        100
+#define F32C_SPEED_PD_DT_MIN_MS              10
+#define F32C_SPEED_PD_DT_MAX_MS             150
 
 /* Position-mode velocity outer loop.
  * The F32C stays in position mode for holding torque, while vision error first

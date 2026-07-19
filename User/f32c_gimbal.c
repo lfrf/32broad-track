@@ -541,6 +541,106 @@ static void F32C_Gimbal_SetSpeedTarget(int16_t motor1_rpm, int16_t motor2_rpm)
     Motor2_T_Speed = (int16_t)clamp_i32(motor2_rpm, -F32C_PITCH_SPEED_LIMIT_RPM, F32C_PITCH_SPEED_LIMIT_RPM);
 }
 
+#if F32C_TRACK_USE_SPEED_MODE
+static int16_t g_speed_pd_filtered_dx = 0;
+static int16_t g_speed_pd_filtered_dy = 0;
+static uint32_t g_speed_pd_last_sample_ms = 0;
+static uint8_t g_speed_pd_filter_valid = 0;
+
+static void f32c_reset_speed_pd(void)
+{
+    g_speed_pd_filtered_dx = 0;
+    g_speed_pd_filtered_dy = 0;
+    g_speed_pd_last_sample_ms = 0;
+    g_speed_pd_filter_valid = 0;
+    F32C_Gimbal_SetSpeedTarget(0, 0);
+}
+
+static void f32c_update_speed_pd(int16_t dx,
+                                 int16_t dy,
+                                 uint32_t now,
+                                 uint8_t used_edge_hold)
+{
+    int16_t previous_dx = g_speed_pd_filtered_dx;
+    int16_t previous_dy = g_speed_pd_filtered_dy;
+    uint32_t dt_ms = 0;
+    int32_t d_dx_ex10s = 0;
+    int32_t d_dy_ex10s = 0;
+    int32_t yaw_p;
+    int32_t pitch_p;
+    int32_t yaw_d;
+    int32_t pitch_d;
+    int32_t yaw_target;
+    int32_t pitch_target;
+
+    if(g_speed_pd_filter_valid == 0){
+        g_speed_pd_filtered_dx = dx;
+        g_speed_pd_filtered_dy = dy;
+        g_speed_pd_filter_valid = 1;
+    } else {
+        g_speed_pd_filtered_dx =
+            (int16_t)(((int32_t)previous_dx *
+                       (F32C_SPEED_PD_FILTER_DEN - F32C_SPEED_PD_FILTER_NEW_NUM) +
+                       (int32_t)dx * F32C_SPEED_PD_FILTER_NEW_NUM) /
+                      F32C_SPEED_PD_FILTER_DEN);
+        g_speed_pd_filtered_dy =
+            (int16_t)(((int32_t)previous_dy *
+                       (F32C_SPEED_PD_FILTER_DEN - F32C_SPEED_PD_FILTER_NEW_NUM) +
+                       (int32_t)dy * F32C_SPEED_PD_FILTER_NEW_NUM) /
+                      F32C_SPEED_PD_FILTER_DEN);
+
+        dt_ms = now - g_speed_pd_last_sample_ms;
+        dt_ms = (uint32_t)clamp_i32((int32_t)dt_ms,
+                                    F32C_SPEED_PD_DT_MIN_MS,
+                                    F32C_SPEED_PD_DT_MAX_MS);
+        d_dx_ex10s = ((int32_t)g_speed_pd_filtered_dx - previous_dx) * 1000 / (int32_t)dt_ms;
+        d_dy_ex10s = ((int32_t)g_speed_pd_filtered_dy - previous_dy) * 1000 / (int32_t)dt_ms;
+    }
+    g_speed_pd_last_sample_ms = now;
+
+    yaw_p = ((int32_t)g_speed_pd_filtered_dx * F32C_YAW_SPEED_PD_KP_NUM) /
+            F32C_YAW_SPEED_PD_KP_DEN;
+    pitch_p = ((int32_t)g_speed_pd_filtered_dy * F32C_PITCH_SPEED_PD_KP_NUM) /
+              F32C_PITCH_SPEED_PD_KP_DEN;
+    yaw_d = (d_dx_ex10s * F32C_YAW_SPEED_PD_KD_NUM) /
+            F32C_YAW_SPEED_PD_KD_DEN;
+    pitch_d = (d_dy_ex10s * F32C_PITCH_SPEED_PD_KD_NUM) /
+              F32C_PITCH_SPEED_PD_KD_DEN;
+
+    yaw_d = clamp_i32(yaw_d,
+                       -F32C_YAW_SPEED_PD_D_LIMIT_RPM,
+                       F32C_YAW_SPEED_PD_D_LIMIT_RPM);
+    pitch_d = clamp_i32(pitch_d,
+                         -F32C_PITCH_SPEED_PD_D_LIMIT_RPM,
+                         F32C_PITCH_SPEED_PD_D_LIMIT_RPM);
+
+    yaw_target = (yaw_p + yaw_d) * F32C_YAW_DIR;
+    pitch_target = (pitch_p + pitch_d) * F32C_PITCH_DIR;
+
+    if(used_edge_hold != 0){
+        yaw_target = clamp_i32(yaw_target,
+                                -F32C_SPEED_PD_EDGE_HOLD_RPM,
+                                F32C_SPEED_PD_EDGE_HOLD_RPM);
+        pitch_target = 0;
+    }
+
+    yaw_target = clamp_i32(yaw_target,
+                            -F32C_YAW_SPEED_LIMIT_RPM,
+                            F32C_YAW_SPEED_LIMIT_RPM);
+    pitch_target = clamp_i32(pitch_target,
+                              -F32C_PITCH_SPEED_LIMIT_RPM,
+                              F32C_PITCH_SPEED_LIMIT_RPM);
+    yaw_target = f32c_slew_i32(Motor1_T_Speed,
+                                yaw_target,
+                                F32C_YAW_SPEED_PD_SLEW_RPM);
+    pitch_target = f32c_slew_i32(Motor2_T_Speed,
+                                  pitch_target,
+                                  F32C_PITCH_SPEED_PD_SLEW_RPM);
+
+    F32C_Gimbal_SetSpeedTarget((int16_t)yaw_target, (int16_t)pitch_target);
+}
+#endif
+
 static void f32c_send_position(uint8_t id, int32_t pos_x10)
 {
     uint8_t *frame = (id == F32C_MOTOR1_ID) ? motor1_Position_data : motor2_Position_data;
@@ -724,9 +824,9 @@ void F32C_Gimbal_Init(void)
     g_track_zone_start_ms = HAL_GetTick();
 
     printf("F32C init: USART3 PB10=TX PB11=RX baud=115200\r\n");
-    printf("F32C cfg: vision=%d speed_mode=%d manual_pos_test=%d boot_relative_init=%d zone_gpio=%d err_ex10=%d edge_guard=%d\r\n",
+    printf("F32C cfg: vision=%d control_mode=%d manual_pos_test=%d boot_relative_init=%d zone_gpio=%d err_ex10=%d edge_guard=%d\r\n",
            F32C_VISION_ENABLE,
-           F32C_TRACK_USE_SPEED_MODE,
+           F32C_TRACK_CONTROL_MODE,
            F32C_MANUAL_POSITION_TEST_ENABLE,
            F32C_BOOT_RELATIVE_INIT_ENABLE,
            F32C_TRACK_ZONE_GPIO_ENABLE,
@@ -782,7 +882,7 @@ void F32C_Gimbal_Init(void)
     HAL_Delay(F32C_CMD_DELAY_MS);
     f32c_send_mode(F32C_MOTOR2_ID, F32C_MODE_SPEED);
     HAL_Delay(F32C_CMD_DELAY_MS);
-    F32C_Gimbal_SetSpeedTarget(0, 0);
+    f32c_reset_speed_pd();
     F32C_Gimbal_SendSpeedBoth();
 #else
     printf("F32C switch to position mode=%u\r\n", (unsigned int)F32C_TRACK_POSITION_MODE);
@@ -911,15 +1011,26 @@ void F32C_Gimbal_Task(void)
 #endif
 
 #if F32C_VISION_ENABLE
-    if((new_vision_sample == 0) &&
-       ((now - last_seen_ms) <= F32C_VISION_TIMEOUT_MS)){
 #if F32C_TRACK_USE_SPEED_MODE
-        F32C_Gimbal_SendSpeedBoth();
-#else
-        F32C_Gimbal_SendPendingIfDue(now);
-#endif
+    if(new_vision_sample == 0){
+        if((now - last_seen_ms) <= F32C_SPEED_PD_SAMPLE_HOLD_MS){
+            F32C_Gimbal_SendSpeedBoth();
+        } else {
+            f32c_reset_speed_pd();
+            yaw_deadzone_active = 0;
+            pitch_deadzone_active = 0;
+            last_control_valid = 0;
+            F32C_Gimbal_SendSpeedBoth();
+        }
         return;
     }
+#else
+    if((new_vision_sample == 0) &&
+       ((now - last_seen_ms) <= F32C_VISION_TIMEOUT_MS)){
+        F32C_Gimbal_SendPendingIfDue(now);
+        return;
+    }
+#endif
 
     if(((now - last_seen_ms) <= F32C_VISION_TIMEOUT_MS) &&
        (found != 0) &&
@@ -934,6 +1045,21 @@ void F32C_Gimbal_Task(void)
                                                     &used_edge_hold);
 
         if(safe_vision_ok != 0){
+#if F32C_TRACK_USE_SPEED_MODE
+            dx = apply_deadzone_hysteresis(dx,
+                                           F32C_SPEED_PD_DEADZONE_X_EX10,
+                                           F32C_SPEED_PD_RELEASE_X_EX10,
+                                           &yaw_deadzone_active);
+            dy = apply_deadzone_hysteresis(dy,
+                                           F32C_SPEED_PD_DEADZONE_Y_EX10,
+                                           F32C_SPEED_PD_RELEASE_Y_EX10,
+                                           &pitch_deadzone_active);
+
+            f32c_update_speed_pd(dx, dy, now, used_edge_hold);
+            last_control_dx = dx;
+            last_control_dy = dy;
+            last_control_valid = 1;
+#else
             dx = apply_deadzone_hysteresis(dx,
                                            F32C_DEADZONE_X_PX,
                                            F32C_DEADZONE_RELEASE_X_PX,
@@ -943,19 +1069,6 @@ void F32C_Gimbal_Task(void)
                                            F32C_DEADZONE_RELEASE_Y_PX,
                                            &pitch_deadzone_active);
 
-#if F32C_TRACK_USE_SPEED_MODE
-            yaw_step = ((int32_t)dx * F32C_YAW_SPEED_K_NUM) / F32C_YAW_SPEED_K_DEN;
-            pitch_step = ((int32_t)dy * F32C_PITCH_SPEED_K_NUM) / F32C_PITCH_SPEED_K_DEN;
-
-            yaw_step *= F32C_YAW_DIR;
-            pitch_step *= F32C_PITCH_DIR;
-
-            if(used_edge_hold != 0){
-                yaw_step = clamp_i32(yaw_step, -F32C_EDGE_HOLD_STEP_X10, F32C_EDGE_HOLD_STEP_X10);
-            }
-
-            F32C_Gimbal_SetSpeedTarget((int16_t)yaw_step, (int16_t)pitch_step);
-#else
             {
                 int32_t target_yaw_vel_x10s;
                 int32_t target_pitch_vel_x10s;
@@ -1055,7 +1168,7 @@ void F32C_Gimbal_Task(void)
             pitch_deadzone_active = 0;
             g_pending_position_valid = 0;
 #if F32C_TRACK_USE_SPEED_MODE
-            F32C_Gimbal_SetSpeedTarget(0, 0);
+            f32c_reset_speed_pd();
 #endif
         }
     } else {
@@ -1070,12 +1183,12 @@ void F32C_Gimbal_Task(void)
         pitch_deadzone_active = 0;
         g_pending_position_valid = 0;
 #if F32C_TRACK_USE_SPEED_MODE
-        F32C_Gimbal_SetSpeedTarget(0, 0);
+        f32c_reset_speed_pd();
 #endif
     }
 #else
 #if F32C_TRACK_USE_SPEED_MODE
-    F32C_Gimbal_SetSpeedTarget(0, 0);
+    f32c_reset_speed_pd();
 #endif
 #endif
 
